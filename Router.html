@@ -1,0 +1,350 @@
+<script>
+  /* ============================================
+     라우터 - 학급 모드 전용
+     ============================================ */
+
+  const routes = {
+    'landing': renderLandingPage,
+    'login': renderStudentLogin,
+    'pin-setup': renderStudentPinSetup,
+    'student-main': renderStudentMain,
+    'story-creator': renderStoryCreator,
+    'teacher-login': renderTeacherLogin,
+    'teacher-setup': renderTeacherSetupWizard,
+    'teacher-dashboard': renderTeacherDashboard,
+    'teacher-students': renderTeacherStudents,
+    'teacher-qr': renderTeacherQR,
+    'teacher-settings': renderTeacherSettings
+  };
+
+  /* ============================================
+     앱 초기화
+     ============================================ */
+  async function initApp(params) {
+    try {
+      // 교사/관리자 모드 먼저 확인
+      if (params.mode === 'teacher' || params.mode === 'admin') {
+        // 설정 먼저 로드
+        try {
+          const settings = await callApi('getSettings');
+          AppState.settings = settings;
+        } catch (e) {
+          console.log('설정 로드 실패:', e);
+        }
+
+        // 교사 인증 확인 후 적절한 화면으로 이동
+        await handleTeacherModeEntry();
+        return;
+      }
+
+      // 첫 설정 여부 확인
+      const firstSetupResult = await callApi('isFirstSetup');
+
+      // 첫 설정인 경우 랜딩 페이지로
+      if (firstSetupResult.isFirstSetup) {
+        navigateTo('landing');
+        return;
+      }
+
+      // 시스템 정보 및 설정 로드
+      const [systemInfo, settings] = await Promise.all([
+        callApi('getSystemInfo'),
+        callApi('getSettings')
+      ]);
+
+      AppState.settings = settings;
+
+      // URL 파라미터 처리
+      if (params.token) {
+        // QR 토큰으로 접속
+        await handleTokenLogin(params.token);
+        return;
+      }
+
+      // 기존 세션 확인
+      const session = loadSession();
+      if (session && session.name && session.number) {
+        AppState.currentUser = session;
+        navigateTo('student-main');
+        return;
+      }
+
+      // 기본: 학생 로그인 화면
+      navigateTo('login');
+
+    } catch (error) {
+      console.error('앱 초기화 실패:', error);
+      showToast('시스템 오류가 발생했습니다.', 'error');
+      // 오류 시 랜딩 페이지로 (첫 설정인 경우일 수 있음)
+      navigateTo('landing');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /* ============================================
+     네비게이션
+     ============================================ */
+  function navigateTo(route, data = {}) {
+    AppState.currentRoute = route;
+
+    const app = document.getElementById('app');
+    const renderFn = routes[route];
+
+    if (renderFn) {
+      app.innerHTML = '';
+      renderFn(app, data);
+
+      // 스크롤 맨 위로
+      window.scrollTo(0, 0);
+    } else {
+      console.error('Unknown route:', route);
+      navigateTo('login');
+    }
+  }
+
+  /* ============================================
+     토큰 로그인 처리
+     ============================================ */
+  async function handleTokenLogin(token) {
+    try {
+      showLoading('QR 코드 확인 중...');
+
+      const result = await callApi('loginByToken', { token });
+
+      if (result.success) {
+        AppState.currentUser = {
+          name: result.name,
+          number: result.number,
+          token: result.token
+        };
+        saveSession(AppState.currentUser);
+        showToast(`${result.name} 학생, 환영합니다! 🎉`, 'success');
+        navigateTo('student-main');
+      } else {
+        showToast(result.error || 'QR 로그인에 실패했습니다.', 'error');
+        navigateTo('login');
+      }
+    } catch (error) {
+      console.error('토큰 로그인 실패:', error);
+      showToast('QR 로그인에 실패했습니다.', 'error');
+      navigateTo('login');
+    }
+  }
+
+  /* ============================================
+     로그아웃
+     ============================================ */
+  function logout() {
+    showConfirm('로그아웃 하시겠습니까?', () => {
+      AppState.currentUser = null;
+      AppState.isTeacher = false;
+      clearSession();
+      showToast('로그아웃 되었습니다.', 'info');
+      navigateTo('login');
+    });
+  }
+
+  /* ============================================
+     학생 로그인 처리
+     ============================================ */
+  async function handleStudentLogin(name, number, pin) {
+    try {
+      clearAllErrors();
+
+      // 유효성 검사
+      const nameError = validateRequired(name, '이름');
+      if (nameError) {
+        showFieldError('login-name', nameError);
+        return;
+      }
+
+      const numberError = validateNumber(number, 1, 100, '번호');
+      if (numberError) {
+        showFieldError('login-number', numberError);
+        return;
+      }
+
+      const pinError = validatePin(pin);
+      if (pinError) {
+        showFieldError('login-pin', pinError);
+        return;
+      }
+
+      showLoading('로그인 중...');
+
+      const result = await callApi('login', {
+        name: name.trim(),
+        number: parseInt(number, 10),
+        pin: pin
+      });
+
+      if (result.success) {
+        AppState.currentUser = {
+          name: result.name,
+          number: result.number,
+          token: result.token
+        };
+        saveSession(AppState.currentUser);
+        showToast(`${result.name} 학생, 환영합니다! 🎉`, 'success');
+        navigateTo('student-main');
+      } else if (result.needSetPin) {
+        // PIN 설정 필요
+        navigateTo('pin-setup', {
+          name: result.name,
+          number: result.number
+        });
+      } else {
+        showToast(result.error || '로그인에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('로그인 오류:', error);
+      showToast('로그인 중 오류가 발생했습니다.', 'error');
+    }
+  }
+
+  /* ============================================
+     학생 상태 확인 (이름+번호만)
+     ============================================ */
+  async function checkStudent(name, number) {
+    try {
+      clearAllErrors();
+
+      const nameError = validateRequired(name, '이름');
+      if (nameError) {
+        showFieldError('login-name', nameError);
+        return null;
+      }
+
+      const numberError = validateNumber(number, 1, 100, '번호');
+      if (numberError) {
+        showFieldError('login-number', numberError);
+        return null;
+      }
+
+      const result = await callApi('checkStudent', {
+        name: name.trim(),
+        number: parseInt(number, 10)
+      });
+
+      return result;
+    } catch (error) {
+      console.error('학생 확인 오류:', error);
+      return { success: false, error: '확인 중 오류가 발생했습니다.' };
+    }
+  }
+
+  /* ============================================
+     PIN 설정 처리
+     ============================================ */
+  async function handlePinSetup(name, number, pin) {
+    try {
+      const pinError = validatePin(pin);
+      if (pinError) {
+        showToast(pinError, 'error');
+        return;
+      }
+
+      showLoading('PIN 설정 중...');
+
+      const result = await callApi('setPin', {
+        name: name,
+        number: number,
+        pin: pin
+      });
+
+      if (result.success) {
+        AppState.currentUser = {
+          name: result.name,
+          number: result.number,
+          token: result.token
+        };
+        saveSession(AppState.currentUser);
+        showToast('PIN이 설정되었습니다! 🎉', 'success');
+        navigateTo('student-main');
+      } else {
+        showToast(result.error || 'PIN 설정에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('PIN 설정 오류:', error);
+      showToast('PIN 설정 중 오류가 발생했습니다.', 'error');
+    }
+  }
+
+  /* ============================================
+     교사 모드 진입 처리
+     ============================================ */
+  async function handleTeacherModeEntry() {
+    try {
+      // 1. 저장된 교사 토큰 확인
+      const savedToken = sessionStorage.getItem('teacherToken');
+
+      // 2. 교사 인증 확인 (PIN 세션 또는 Google 계정)
+      const authResult = await callApi('checkTeacherAuth', { teacherToken: savedToken });
+
+      if (authResult.isAuthorized) {
+        // 인증됨 - 교사 모드 활성화
+        AppState.isTeacher = true;
+        if (savedToken) {
+          AppState.teacherToken = savedToken;
+        }
+
+        // 첫 설정 여부 확인
+        const firstSetup = await callApi('isFirstSetup');
+        if (firstSetup.isFirstSetup) {
+          navigateTo('teacher-setup');
+        } else {
+          navigateTo('teacher-dashboard');
+        }
+        return;
+      }
+
+      // 3. 인증 안됨 - 로그인 화면으로
+      const [firstSetup, hasPin] = await Promise.all([
+        callApi('isFirstSetup'),
+        callApi('hasTeacherPin')
+      ]);
+
+      navigateTo('teacher-login', {
+        isFirstSetup: firstSetup.isFirstSetup,
+        hasPin: hasPin.hasPin
+      });
+
+    } catch (error) {
+      console.error('교사 모드 진입 오류:', error);
+      // 오류 시에도 로그인 화면으로
+      navigateTo('teacher-login', { isFirstSetup: true, hasPin: false });
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /* ============================================
+     교사 초기 설정 완료
+     ============================================ */
+  async function completeTeacherSetup(setupData) {
+    try {
+      showLoading('설정 저장 중...');
+
+      // 시스템 초기화 (시트 생성)
+      await callApi('initialize');
+
+      // 학급 모드로 고정
+      setupData.systemMode = 'classroom';
+
+      // 설정 저장
+      const result = await callApi('saveSettings', { settings: setupData });
+
+      if (result.success) {
+        AppState.settings = { ...AppState.settings, ...setupData };
+        showToast('설정이 완료되었습니다! 🎉', 'success');
+        navigateTo('teacher-dashboard');
+      } else {
+        showToast(result.error || '설정 저장에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('설정 저장 오류:', error);
+      showToast('설정 저장 중 오류가 발생했습니다.', 'error');
+    }
+  }
+</script>

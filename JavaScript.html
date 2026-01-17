@@ -1,0 +1,453 @@
+<script>
+  /* ============================================
+     전역 상태
+     ============================================ */
+  const AppState = {
+    currentUser: null,  // { name, number, token, role }
+    settings: null,
+    isTeacher: false,
+    isPersonalMode: false,  // 개인 모드 여부
+    currentRoute: null
+  };
+
+  /* ============================================
+     시스템 모드 상수
+     ============================================ */
+  const SYSTEM_MODES = {
+    CLASSROOM: 'classroom',  // 학급 모드 (교사 + 학생)
+    PERSONAL: 'personal'     // 개인 모드 (로그인 없음)
+  };
+
+  /* ============================================
+     API 호출 함수
+     ============================================ */
+  async function callApi(action, data = {}) {
+    try {
+      showLoading();
+
+      return new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(result => {
+            hideLoading();
+            resolve(result);
+          })
+          .withFailureHandler(error => {
+            hideLoading();
+            reject(error);
+          })
+          .callApi(action, data);
+      });
+    } catch (error) {
+      hideLoading();
+      throw error;
+    }
+  }
+
+  /* ============================================
+     로딩 UI
+     ============================================ */
+  function showLoading(message = '잠시만 기다려주세요...') {
+    const loader = document.getElementById('loading');
+    if (loader) {
+      loader.querySelector('p').textContent = message;
+      loader.classList.remove('hidden');
+    }
+  }
+
+  function hideLoading() {
+    const loader = document.getElementById('loading');
+    if (loader) {
+      loader.classList.add('hidden');
+    }
+  }
+
+  /* ============================================
+     토스트 메시지
+     ============================================ */
+  function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+      <span>${getToastIcon(type)}</span>
+      <span>${message}</span>
+    `;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  function getToastIcon(type) {
+    switch (type) {
+      case 'success': return '✅';
+      case 'error': return '❌';
+      case 'warning': return '⚠️';
+      default: return 'ℹ️';
+    }
+  }
+
+  /* ============================================
+     모달
+     ============================================ */
+  function showModal(options) {
+    const { title, content, buttons = [], onClose } = options;
+
+    const container = document.getElementById('modal-container');
+    container.innerHTML = `
+      <div class="modal-overlay" onclick="closeModal()">
+        <div class="modal" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <h3>${title}</h3>
+            <button class="btn btn-icon btn-ghost" onclick="closeModal()">✕</button>
+          </div>
+          <div class="modal-body">
+            ${content}
+          </div>
+          ${buttons.length > 0 ? `
+            <div class="modal-footer">
+              ${buttons.map(btn => `
+                <button class="btn ${btn.class || 'btn-outline'}" onclick="${btn.onclick || 'closeModal()'}">${btn.text}</button>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+
+    if (onClose) {
+      container._onClose = onClose;
+    }
+  }
+
+  function closeModal() {
+    const container = document.getElementById('modal-container');
+    if (container._onClose) {
+      container._onClose();
+      delete container._onClose;
+    }
+    container.innerHTML = '';
+  }
+
+  /* ============================================
+     확인 다이얼로그
+     ============================================ */
+  function showConfirm(message, onConfirm, onCancel) {
+    showModal({
+      title: '확인',
+      content: `<p>${message}</p>`,
+      buttons: [
+        { text: '취소', class: 'btn-outline', onclick: 'closeModal()' },
+        { text: '확인', class: 'btn-primary', onclick: `(${onConfirm.toString()})(); closeModal();` }
+      ]
+    });
+  }
+
+  /* ============================================
+     유틸리티 함수
+     ============================================ */
+
+  // DOM 요소 가져오기
+  function $(selector) {
+    return document.querySelector(selector);
+  }
+
+  function $$(selector) {
+    return document.querySelectorAll(selector);
+  }
+
+  // HTML 이스케이프
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // 폼 데이터 가져오기
+  function getFormData(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return {};
+
+    const data = {};
+    const inputs = form.querySelectorAll('input, textarea, select');
+
+    inputs.forEach(input => {
+      if (input.name) {
+        if (input.type === 'checkbox') {
+          data[input.name] = input.checked;
+        } else if (input.type === 'number') {
+          data[input.name] = input.value ? parseInt(input.value, 10) : null;
+        } else {
+          data[input.name] = input.value;
+        }
+      }
+    });
+
+    return data;
+  }
+
+  // 입력값 검증
+  function validateRequired(value, fieldName) {
+    if (!value || (typeof value === 'string' && !value.trim())) {
+      return `${fieldName}을(를) 입력해주세요.`;
+    }
+    return null;
+  }
+
+  function validateNumber(value, min, max, fieldName) {
+    const num = parseInt(value, 10);
+    if (isNaN(num)) {
+      return `${fieldName}은(는) 숫자여야 합니다.`;
+    }
+    if (num < min || num > max) {
+      return `${fieldName}은(는) ${min}~${max} 사이여야 합니다.`;
+    }
+    return null;
+  }
+
+  function validatePin(value) {
+    if (!value || !/^\d{6}$/.test(value)) {
+      return 'PIN은 숫자 6자리여야 합니다.';
+    }
+    return null;
+  }
+
+  // 에러 표시
+  function showFieldError(inputId, message) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    // 기존 에러 제거
+    clearFieldError(inputId);
+
+    // 에러 스타일 적용
+    input.style.borderColor = 'var(--accent)';
+
+    // 에러 메시지 추가
+    const errorEl = document.createElement('div');
+    errorEl.className = 'form-error';
+    errorEl.id = `${inputId}-error`;
+    errorEl.textContent = message;
+    input.parentNode.appendChild(errorEl);
+  }
+
+  function clearFieldError(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.style.borderColor = '';
+    }
+
+    const errorEl = document.getElementById(`${inputId}-error`);
+    if (errorEl) {
+      errorEl.remove();
+    }
+  }
+
+  function clearAllErrors() {
+    $$('.form-error').forEach(el => el.remove());
+    $$('.form-input').forEach(el => el.style.borderColor = '');
+  }
+
+  // 로컬 스토리지 (세션 저장용)
+  function saveSession(data) {
+    try {
+      sessionStorage.setItem('storyCreator_session', JSON.stringify(data));
+    } catch (e) {
+      console.warn('Session storage not available');
+    }
+  }
+
+  function loadSession() {
+    try {
+      const data = sessionStorage.getItem('storyCreator_session');
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    try {
+      sessionStorage.removeItem('storyCreator_session');
+    } catch (e) {
+      console.warn('Session storage not available');
+    }
+  }
+
+  // 날짜 포맷
+  function formatDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ko-KR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  function formatDateShort(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ko-KR');
+  }
+
+  // 디바운스
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  // 클립보드 복사
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('복사되었습니다!', 'success');
+      return true;
+    } catch (err) {
+      // 폴백
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      showToast('복사되었습니다!', 'success');
+      return true;
+    }
+  }
+
+  // QR 코드 생성
+  async function generateQRCode(text, elementId, size = 200) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    try {
+      const dataUrl = await QRCode.toDataURL(text, {
+        width: size,
+        margin: 2,
+        color: {
+          dark: '#2C3E50',
+          light: '#FFFFFF'
+        }
+      });
+
+      element.innerHTML = `<img src="${dataUrl}" alt="QR Code" style="max-width: 100%;">`;
+    } catch (err) {
+      console.error('QR 생성 실패:', err);
+      element.innerHTML = '<p class="text-muted">QR 코드 생성 실패</p>';
+    }
+  }
+
+  // 다운로드 함수
+  function downloadFile(content, filename, type = 'text/plain') {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadJSON(data, filename) {
+    const json = JSON.stringify(data, null, 2);
+    downloadFile(json, filename, 'application/json');
+  }
+
+  /* ============================================
+     PIN 입력 핸들러
+     ============================================ */
+  function setupPinInput(containerId, onComplete) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('.pin-input');
+
+    inputs.forEach((input, index) => {
+      input.addEventListener('input', (e) => {
+        const value = e.target.value;
+
+        // 숫자만 허용
+        if (!/^\d*$/.test(value)) {
+          e.target.value = '';
+          return;
+        }
+
+        // 다음 입력으로 이동
+        if (value && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+
+        // 완료 확인
+        if (index === inputs.length - 1 && value) {
+          const pin = Array.from(inputs).map(i => i.value).join('');
+          if (pin.length === 6 && onComplete) {
+            onComplete(pin);
+          }
+        }
+      });
+
+      input.addEventListener('keydown', (e) => {
+        // 백스페이스 처리
+        if (e.key === 'Backspace' && !e.target.value && index > 0) {
+          inputs[index - 1].focus();
+        }
+      });
+
+      // 붙여넣기 처리
+      input.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const paste = (e.clipboardData || window.clipboardData).getData('text');
+        const digits = paste.replace(/\D/g, '').slice(0, 6);
+
+        digits.split('').forEach((digit, i) => {
+          if (inputs[i]) {
+            inputs[i].value = digit;
+          }
+        });
+
+        if (digits.length === 6 && onComplete) {
+          onComplete(digits);
+        } else if (digits.length > 0 && inputs[Math.min(digits.length, 5)]) {
+          inputs[Math.min(digits.length, 5)].focus();
+        }
+      });
+    });
+
+    // 첫 번째 입력에 포커스
+    if (inputs[0]) {
+      setTimeout(() => inputs[0].focus(), 100);
+    }
+  }
+
+  function getPinValue(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return '';
+
+    const inputs = container.querySelectorAll('.pin-input');
+    return Array.from(inputs).map(i => i.value).join('');
+  }
+
+  function clearPinInput(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('.pin-input');
+    inputs.forEach(input => input.value = '');
+    if (inputs[0]) inputs[0].focus();
+  }
+</script>

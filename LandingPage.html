@@ -1,0 +1,440 @@
+<script>
+  /* ============================================
+     랜딩 페이지 - 학급 모드 전용
+     교사가 처음 배포할 때 나타나는 화면
+     ============================================ */
+
+  function renderLandingPage(container) {
+    container.innerHTML = `
+      <div class="landing-wrapper">
+        <!-- 배경 장식 -->
+        <div class="landing-bg-decoration">
+          <div class="floating-shape shape-1">✨</div>
+          <div class="floating-shape shape-2">📖</div>
+          <div class="floating-shape shape-3">🌟</div>
+          <div class="floating-shape shape-4">✏️</div>
+        </div>
+
+        <div class="container-narrow fade-in">
+          <!-- 히어로 섹션 -->
+          <div class="landing-hero">
+            <div class="hero-icon-wrapper">
+              <div class="hero-icon">📚</div>
+              <div class="hero-icon-ring"></div>
+            </div>
+            <h1 class="landing-title">
+              스토리 구성<br>
+              <span class="title-highlight">웹학습지</span>
+            </h1>
+            <p class="landing-subtitle">
+              우리 반만의 4컷 스토리 학습 공간을 만들어보세요!
+            </p>
+          </div>
+
+          <!-- 메인 카드 -->
+          <div class="card landing-main-card">
+            <!-- 학급 모드 안내 -->
+            <div class="classroom-mode-intro">
+              <div class="intro-badge">👩‍🏫 학급 모드</div>
+              <h2 class="intro-title">선생님 전용 학습지</h2>
+              <p class="intro-desc">
+                이 웹앱은 선생님이 직접 관리하는<br>
+                <strong>독립적인 학급 시스템</strong>입니다.
+              </p>
+            </div>
+
+            <!-- 기능 목록 -->
+            <div class="feature-list">
+              <div class="feature-item">
+                <div class="feature-icon">📋</div>
+                <div class="feature-text">
+                  <strong>학생 명단 관리</strong>
+                  <span>학생 등록 및 현황 확인</span>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon">📱</div>
+                <div class="feature-text">
+                  <strong>QR 코드 로그인</strong>
+                  <span>학생별 QR 코드 생성</span>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon">📊</div>
+                <div class="feature-text">
+                  <strong>작품 현황</strong>
+                  <span>학생 작품 진행 상황 파악</span>
+                </div>
+              </div>
+              <div class="feature-item">
+                <div class="feature-icon">🔒</div>
+                <div class="feature-text">
+                  <strong>안전한 데이터</strong>
+                  <span>선생님 드라이브에만 저장</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 시작 버튼 -->
+            <button class="btn btn-primary btn-large start-setup-btn" onclick="startTeacherSetup()">
+              <span class="btn-icon">🚀</span>
+              초기 설정 시작하기
+            </button>
+
+            <!-- 기존 사용자 섹션 -->
+            <div class="existing-user-section">
+              <div class="divider-with-text">
+                <span>이미 설정을 완료하셨나요?</span>
+              </div>
+              <div class="existing-user-buttons">
+                <button class="btn-existing" onclick="goToStudentLogin()">
+                  <span class="btn-icon">👨‍🎓</span>
+                  <span>학생 로그인</span>
+                </button>
+                <button class="btn-existing" onclick="goToAdminLogin()">
+                  <span class="btn-icon">🔐</span>
+                  <span>관리자 로그인</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 하단 정보 -->
+          <div class="landing-footer">
+            <p>4컷 스토리 → AI 그림책 변환을 위한 웹학습지</p>
+            <p class="footer-note">
+              각 선생님이 독립적으로 운영하는 "점조직" 구조
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        /* 랜딩 페이지 전용 스타일 */
+        .landing-wrapper {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #f8faff 0%, #f0f4ff 50%, #faf8ff 100%);
+          position: relative;
+          overflow: hidden;
+          padding: 20px 0 40px;
+        }
+
+        /* 배경 장식 */
+        .landing-bg-decoration {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          pointer-events: none;
+          overflow: hidden;
+        }
+
+        .floating-shape {
+          position: absolute;
+          font-size: 2rem;
+          opacity: 0.15;
+          animation: float 6s ease-in-out infinite;
+        }
+
+        .shape-1 { top: 10%; left: 10%; animation-delay: 0s; }
+        .shape-2 { top: 20%; right: 15%; animation-delay: 1.5s; }
+        .shape-3 { bottom: 30%; left: 8%; animation-delay: 3s; }
+        .shape-4 { bottom: 15%; right: 10%; animation-delay: 4.5s; }
+
+        @keyframes float {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50% { transform: translateY(-20px) rotate(10deg); }
+        }
+
+        /* 히어로 섹션 */
+        .landing-hero {
+          text-align: center;
+          padding: 40px 20px 30px;
+        }
+
+        .hero-icon-wrapper {
+          position: relative;
+          display: inline-block;
+          margin-bottom: 20px;
+        }
+
+        .hero-icon {
+          font-size: 4.5rem;
+          position: relative;
+          z-index: 1;
+          animation: bounce 2s ease-in-out infinite;
+        }
+
+        .hero-icon-ring {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 100px;
+          height: 100px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, var(--primary-light) 0%, rgba(255,255,255,0) 70%);
+          animation: pulse-ring 2s ease-out infinite;
+        }
+
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-8px); }
+        }
+
+        @keyframes pulse-ring {
+          0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+        }
+
+        .landing-title {
+          font-family: 'Nanum Pen Script', cursive;
+          font-size: 2.5rem;
+          color: var(--text);
+          margin: 0 0 12px;
+          line-height: 1.2;
+        }
+
+        .title-highlight {
+          color: var(--primary);
+          position: relative;
+        }
+
+        .title-highlight::after {
+          content: '';
+          position: absolute;
+          bottom: 2px;
+          left: 0;
+          right: 0;
+          height: 8px;
+          background: var(--primary-light);
+          z-index: -1;
+          border-radius: 4px;
+        }
+
+        .landing-subtitle {
+          color: var(--text-light);
+          font-size: 1rem;
+          margin: 0;
+        }
+
+        /* 메인 카드 */
+        .landing-main-card {
+          padding: 28px 24px;
+          border-radius: 20px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+        }
+
+        /* 학급 모드 안내 */
+        .classroom-mode-intro {
+          text-align: center;
+          margin-bottom: 24px;
+        }
+
+        .intro-badge {
+          display: inline-block;
+          padding: 6px 14px;
+          background: linear-gradient(135deg, #e3f0ff 0%, #f0f7ff 100%);
+          color: var(--primary);
+          font-size: 0.85rem;
+          font-weight: 600;
+          border-radius: 20px;
+          margin-bottom: 12px;
+        }
+
+        .intro-title {
+          margin: 0 0 8px;
+          font-size: 1.3rem;
+          font-weight: 700;
+          color: var(--text);
+        }
+
+        .intro-desc {
+          margin: 0;
+          color: var(--text-light);
+          font-size: 0.95rem;
+          line-height: 1.5;
+        }
+
+        .intro-desc strong {
+          color: var(--primary);
+        }
+
+        /* 기능 목록 */
+        .feature-list {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+
+        .feature-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px;
+          background: #f8fafc;
+          border-radius: 12px;
+        }
+
+        .feature-icon {
+          font-size: 1.5rem;
+          flex-shrink: 0;
+        }
+
+        .feature-text {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .feature-text strong {
+          font-size: 0.85rem;
+          color: var(--text);
+        }
+
+        .feature-text span {
+          font-size: 0.75rem;
+          color: var(--text-light);
+        }
+
+        /* 시작 버튼 */
+        .start-setup-btn {
+          width: 100%;
+          margin-bottom: 24px;
+          padding: 16px 24px;
+          font-size: 1.1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+        }
+
+        .start-setup-btn .btn-icon {
+          font-size: 1.3rem;
+        }
+
+        /* 기존 사용자 섹션 */
+        .existing-user-section {
+          padding-top: 8px;
+        }
+
+        .divider-with-text {
+          display: flex;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+
+        .divider-with-text::before,
+        .divider-with-text::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: var(--border);
+        }
+
+        .divider-with-text span {
+          padding: 0 16px;
+          color: var(--text-light);
+          font-size: 0.85rem;
+          white-space: nowrap;
+        }
+
+        .existing-user-buttons {
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+        }
+
+        .btn-existing {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 18px;
+          border: 1.5px solid var(--border);
+          border-radius: 10px;
+          background: white;
+          color: var(--text);
+          font-size: 0.9rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-existing:hover {
+          border-color: var(--primary);
+          background: var(--primary-light);
+          color: var(--primary);
+        }
+
+        .btn-existing .btn-icon {
+          font-size: 1.1rem;
+        }
+
+        /* 푸터 */
+        .landing-footer {
+          text-align: center;
+          padding: 24px 20px;
+          color: var(--text-light);
+          font-size: 0.8rem;
+        }
+
+        .landing-footer p {
+          margin: 0 0 6px;
+        }
+
+        .footer-note {
+          font-size: 0.75rem;
+          opacity: 0.8;
+        }
+
+        /* 반응형 */
+        @media (max-width: 480px) {
+          .landing-title {
+            font-size: 2rem;
+          }
+
+          .feature-list {
+            grid-template-columns: 1fr;
+          }
+
+          .existing-user-buttons {
+            flex-direction: column;
+          }
+
+          .btn-existing {
+            justify-content: center;
+          }
+        }
+      </style>
+    `;
+  }
+
+  /**
+   * 선생님 설정 시작 (학급 모드)
+   */
+  function startTeacherSetup() {
+    navigateTo('teacher-setup');
+  }
+
+  /**
+   * 학생 로그인으로 이동
+   */
+  function goToStudentLogin() {
+    navigateTo('login');
+  }
+
+  /**
+   * 관리자 로그인으로 이동
+   */
+  async function goToAdminLogin() {
+    showLoading('확인 중...');
+    try {
+      await handleTeacherModeEntry();
+    } catch (error) {
+      hideLoading();
+      navigateTo('teacher-login', { isFirstSetup: false, hasPin: false });
+    }
+  }
+</script>

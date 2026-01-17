@@ -1,0 +1,168 @@
+<script>
+  /* ============================================
+     학생 메인 화면
+     ============================================ */
+
+  let studentWorks = null;
+
+  async function renderStudentMain(container) {
+    const user = AppState.currentUser;
+
+    if (!user) {
+      navigateTo('login');
+      return;
+    }
+
+    // 학생 작품 정보 로드
+    try {
+      const result = await callApi('getStudentWorks', {
+        studentName: user.name,
+        studentNumber: user.number
+      });
+
+      if (result.success) {
+        studentWorks = result.data;
+      }
+    } catch (error) {
+      console.error('작품 로드 실패:', error);
+    }
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderStudentHeader()}
+
+        ${renderWelcomeCard()}
+
+        <h2 style="margin-bottom: 16px;">📝 나의 학습 단계</h2>
+
+        <div class="flex flex-col gap-2" style="max-width: 600px;">
+          ${renderStepCard(
+            1,
+            '4컷 스토리 만들기',
+            '발단-전개-절정-결말의 기본 구조로 이야기를 만들어요',
+            '📖',
+            true,
+            false
+          )}
+
+          ${renderStepCard(
+            2,
+            '장면 확장하기',
+            '각 장면을 더 자세하게 묘사하고 대화를 추가해요',
+            '🎬',
+            false,
+            !hasCompletedStep(1)
+          )}
+
+          ${renderStepCard(
+            3,
+            '콘티 완성하기',
+            '스토리보드 형태로 작품을 완성해요',
+            '🎨',
+            false,
+            !hasCompletedStep(2)
+          )}
+        </div>
+
+        ${renderMyWorksSection()}
+
+        <div style="margin-top: 32px; text-align: center;">
+          <button class="btn btn-ghost" onclick="logout()">
+            로그아웃
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 단계 완료 여부 확인
+   */
+  function hasCompletedStep(step) {
+    if (!studentWorks) return false;
+    const work = studentWorks[`step${step}`];
+    return work && work.isComplete;
+  }
+
+  /**
+   * 단계 시작
+   */
+  function startStep(step) {
+    const user = AppState.currentUser;
+
+    // 이전 단계 완료 확인 (STEP 1은 바로 시작 가능)
+    if (step > 1 && !hasCompletedStep(step - 1)) {
+      showToast(`먼저 STEP ${step - 1}을 완료해주세요!`, 'warning');
+      return;
+    }
+
+    navigateTo('story-creator', {
+      step: step,
+      studentName: user.name,
+      studentNumber: user.number,
+      existingWork: studentWorks ? studentWorks[`step${step}`] : null
+    });
+  }
+
+  /**
+   * 내 작품 섹션 렌더링
+   */
+  function renderMyWorksSection() {
+    const works = [];
+
+    if (studentWorks) {
+      for (let step = 1; step <= 3; step++) {
+        const work = studentWorks[`step${step}`];
+        if (work) {
+          works.push({
+            step: step,
+            title: work.workData?.title || `STEP ${step} 작품`,
+            updatedAt: work.updatedAt,
+            isComplete: work.isComplete,
+            status: work.status
+          });
+        }
+      }
+    }
+
+    if (works.length === 0) {
+      return `
+        <div style="margin-top: 32px;">
+          <h2 style="margin-bottom: 16px;">📂 나의 작품</h2>
+          ${renderEmptyState(
+            '📝',
+            '아직 작품이 없어요',
+            'STEP 1부터 시작해보세요!'
+          )}
+        </div>
+      `;
+    }
+
+    return `
+      <div style="margin-top: 32px;">
+        <h2 style="margin-bottom: 16px;">📂 나의 작품</h2>
+        <div class="flex flex-col gap-2">
+          ${works.map(work => `
+            <div class="card" style="padding: 16px;">
+              <div class="flex justify-between items-center">
+                <div>
+                  <span style="color: var(--text-light); font-size: 0.85rem;">STEP ${work.step}</span>
+                  <h4 style="margin: 4px 0;">${escapeHtml(work.title)}</h4>
+                  <span style="color: var(--text-muted); font-size: 0.8rem;">
+                    최근 수정: ${work.updatedAt || '알 수 없음'}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  ${renderWorkStatusBadge(work.status, work.isComplete)}
+                  <button class="btn btn-sm btn-primary" onclick="startStep(${work.step})">
+                    ${work.isComplete ? '보기' : '계속하기'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+</script>

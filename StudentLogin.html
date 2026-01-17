@@ -1,0 +1,206 @@
+<script>
+  /* ============================================
+     학생 로그인 화면
+     ============================================ */
+
+  function renderStudentLogin(container) {
+    const settings = AppState.settings || {};
+    const teacherName = settings.teacherName ? `${escapeHtml(settings.teacherName)} 선생님의 ` : '';
+    // 날짜 형식 데이터 필터링
+    const className = safeSettingValue ? safeSettingValue(settings.className) : settings.className;
+    const classInfo = className ? `(${escapeHtml(className)})` : '';
+
+    container.innerHTML = `
+      <div class="container-narrow fade-in" role="main" aria-label="학생 로그인 페이지">
+        <!-- 학생용 로그인 헤더 -->
+        <header class="card card-rainbow-top" style="margin-bottom: 24px; padding-top: 30px;" role="banner">
+          <div class="text-center">
+            <h1 class="title-handwriting" style="color: var(--primary); font-size: 1.8rem;">
+              ${teacherName ? `${teacherName}` : ''}스토리 학습지
+            </h1>
+            ${classInfo ? `<p style="color: var(--text-light); margin-top: 4px;">${classInfo}</p>` : ''}
+          </div>
+        </header>
+
+        <div class="card slide-up" role="region" aria-label="로그인 폼">
+          <div class="text-center mb-3">
+            <h2 id="login-title">학생 로그인</h2>
+            <p style="color: var(--text-light);" id="login-description">
+              선생님께 받은 정보로 로그인하세요
+            </p>
+          </div>
+
+          <form id="login-form" onsubmit="submitLogin(event)" aria-labelledby="login-title" aria-describedby="login-description">
+            <div class="form-group">
+              <label class="form-label" for="login-name" id="name-label">이름</label>
+              <input type="text" id="login-name" name="name" class="form-input form-input-lg"
+                     placeholder="예: 홍길동" autocomplete="name" required
+                     aria-labelledby="name-label" aria-required="true"
+                     aria-describedby="name-hint">
+              <span id="name-hint" class="sr-only">이름을 입력하세요</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="login-number" id="number-label">번호</label>
+              <input type="number" id="login-number" name="number" class="form-input form-input-lg"
+                     placeholder="예: 15" min="1" max="100" inputmode="numeric" required
+                     aria-labelledby="number-label" aria-required="true"
+                     aria-describedby="number-hint">
+              <span id="number-hint" class="sr-only">1부터 100까지의 번호를 입력하세요</span>
+            </div>
+
+            <div id="pin-section" style="display: none;" aria-live="polite">
+              ${renderPinInput('login-pin', 'PIN (선생님께 받은 6자리 숫자)')}
+              <p class="form-helper" style="text-align: center; margin-top: -8px;" id="pin-hint">
+                PIN을 모르면 선생님께 문의하세요
+              </p>
+            </div>
+
+            <div id="login-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
+
+            <button type="submit" id="login-btn" class="btn btn-primary btn-lg btn-block mt-3"
+                    aria-describedby="login-btn-hint">
+              <span id="login-btn-text">다음</span>
+            </button>
+            <span id="login-btn-hint" class="sr-only">이름과 번호 입력 후 다음 버튼을 누르세요</span>
+          </form>
+
+          <div class="text-center mt-3" style="padding-top: 16px; border-top: 1px solid var(--border);">
+            <a href="javascript:void(0)" onclick="showTeacherModeInfo(event)"
+               style="color: var(--text-light); font-size: 0.85rem;"
+               role="button" aria-label="선생님 모드로 전환하기">
+              선생님이신가요? 여기를 클릭하세요
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 이름 입력 필드에 포커스
+    setTimeout(() => {
+      const nameInput = document.getElementById('login-name');
+      if (nameInput) nameInput.focus();
+    }, 100);
+
+    // 번호 입력 후 자동으로 학생 확인
+    const numberInput = document.getElementById('login-number');
+    numberInput.addEventListener('blur', checkStudentAndShowPin);
+  }
+
+  /**
+   * 학생 확인 후 PIN 입력 섹션 표시
+   */
+  async function checkStudentAndShowPin() {
+    const name = document.getElementById('login-name').value.trim();
+    const number = document.getElementById('login-number').value;
+
+    if (!name || !number) return;
+
+    const result = await checkStudent(name, number);
+
+    const pinSection = document.getElementById('pin-section');
+    const loginBtn = document.getElementById('login-btn-text');
+    const errorDiv = document.getElementById('login-error');
+
+    if (!result) return;
+
+    if (!result.success) {
+      if (result.notFound) {
+        errorDiv.innerHTML = `
+          <strong>❓ 등록되지 않은 학생입니다</strong>
+          <p style="margin-top: 8px;">입력한 정보를 확인하거나, 선생님께 문의해주세요.</p>
+        `;
+        errorDiv.style.display = 'block';
+        pinSection.style.display = 'none';
+      } else {
+        errorDiv.innerHTML = result.error;
+        errorDiv.style.display = 'block';
+      }
+      return;
+    }
+
+    errorDiv.style.display = 'none';
+
+    if (result.needSetPin) {
+      // PIN 설정이 필요한 경우
+      navigateTo('pin-setup', {
+        name: result.name,
+        number: result.number
+      });
+    } else {
+      // PIN 입력 섹션 표시
+      pinSection.style.display = 'block';
+      loginBtn.textContent = '로그인';
+
+      // PIN 입력 설정
+      setupPinInput('login-pin');
+    }
+  }
+
+  /**
+   * 로그인 폼 제출
+   */
+  async function submitLogin(event) {
+    event.preventDefault();
+
+    const name = document.getElementById('login-name').value.trim();
+    const number = document.getElementById('login-number').value;
+    const pinSection = document.getElementById('pin-section');
+
+    if (pinSection.style.display === 'none') {
+      // 아직 학생 확인 안됨 - 확인 먼저
+      await checkStudentAndShowPin();
+      return;
+    }
+
+    const pin = getPinValue('login-pin');
+    await handleStudentLogin(name, number, pin);
+  }
+
+  /**
+   * 교사 모드 안내
+   */
+  function showTeacherModeInfo(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    showModal({
+      title: '선생님 모드',
+      content: `
+        <div style="text-align: center; padding: 16px 0;">
+          <div style="font-size: 3rem; margin-bottom: 16px;">👩‍🏫</div>
+          <p style="margin-bottom: 20px;">
+            선생님이시라면 아래 버튼을 눌러<br>
+            선생님 모드로 접속하세요.
+          </p>
+          <button class="btn btn-primary btn-lg btn-block" onclick="enterTeacherMode()">
+            선생님 모드로 접속하기
+          </button>
+          <p style="margin-top: 16px; color: var(--text-light); font-size: 0.85rem;">
+            또는 URL 뒤에 <code>?mode=teacher</code>를 추가해도 됩니다.
+          </p>
+        </div>
+      `
+    });
+  }
+
+  /**
+   * 교사 모드 진입 - 인증 필요
+   */
+  async function enterTeacherMode() {
+    closeModal();
+    showLoading('확인 중...');
+
+    try {
+      // 교사 인증 확인 후 적절한 화면으로 이동
+      await handleTeacherModeEntry();
+    } catch (error) {
+      console.log('교사 모드 전환 오류:', error);
+      hideLoading();
+      // 오류 시 로그인 화면으로
+      navigateTo('teacher-login', { isFirstSetup: true, hasPin: false });
+    }
+  }
+</script>

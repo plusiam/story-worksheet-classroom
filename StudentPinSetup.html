@@ -1,0 +1,121 @@
+<script>
+  /* ============================================
+     학생 PIN 설정 화면
+     ============================================ */
+
+  let pinSetupData = {};
+
+  function renderStudentPinSetup(container, data) {
+    pinSetupData = data || {};
+    const settings = AppState.settings || {};
+
+    container.innerHTML = `
+      <div class="container-narrow fade-in">
+        ${renderStudentHeader()}
+
+        <div class="card slide-up">
+          <div class="text-center mb-3">
+            <div style="font-size: 4rem; margin-bottom: 16px;">🔐</div>
+            <h2>👋 ${escapeHtml(pinSetupData.name || '')}(${pinSetupData.number || ''}번) 학생, 반가워요!</h2>
+            <p style="color: var(--text-light); margin-top: 8px;">
+              처음 오셨네요!<br>
+              앞으로 사용할 PIN을 만들어주세요.
+            </p>
+          </div>
+
+          <div class="alert alert-info">
+            <span>💡</span>
+            <div>
+              <strong>PIN이란?</strong>
+              <p style="margin: 4px 0 0 0; font-size: 0.9rem;">
+                다음에 로그인할 때 사용하는 숫자 비밀번호예요.<br>
+                잊어버리지 않도록 기억해주세요!
+              </p>
+            </div>
+          </div>
+
+          <form id="pin-setup-form" onsubmit="submitPinSetup(event)">
+            ${renderPinInput('setup-pin', 'PIN 만들기')}
+
+            <div style="margin-top: 24px;">
+              ${renderPinInput('setup-pin-confirm', 'PIN 확인')}
+            </div>
+
+            <div id="pin-error" class="alert alert-error mt-2" style="display: none;"></div>
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">
+              시작하기 🚀
+            </button>
+          </form>
+
+          <div class="text-center mt-3">
+            <a href="#" onclick="navigateTo('login')" style="color: var(--text-light); font-size: 0.85rem;">
+              ← 다시 입력하기
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // PIN 입력 설정
+    setTimeout(() => {
+      setupPinInput('setup-pin');
+      setupPinInput('setup-pin-confirm');
+    }, 100);
+  }
+
+  /**
+   * PIN 설정 제출
+   */
+  async function submitPinSetup(event) {
+    event.preventDefault();
+
+    const pin = getPinValue('setup-pin');
+    const pinConfirm = getPinValue('setup-pin-confirm');
+    const errorDiv = document.getElementById('pin-error');
+
+    // 유효성 검사
+    const pinError = validatePin(pin);
+    if (pinError) {
+      errorDiv.textContent = pinError;
+      errorDiv.style.display = 'block';
+      clearPinInput('setup-pin');
+      return;
+    }
+
+    // PIN 확인
+    if (pin !== pinConfirm) {
+      errorDiv.textContent = 'PIN이 일치하지 않습니다. 다시 입력해주세요.';
+      errorDiv.style.display = 'block';
+      clearPinInput('setup-pin-confirm');
+      return;
+    }
+
+    // 너무 단순한 PIN 경고
+    if (isSimplePin(pin)) {
+      showConfirm(
+        '선택한 PIN이 너무 단순합니다 (예: 123456, 111111). 그래도 사용하시겠습니까?',
+        () => {
+          handlePinSetup(pinSetupData.name, pinSetupData.number, pin);
+        }
+      );
+      return;
+    }
+
+    errorDiv.style.display = 'none';
+    await handlePinSetup(pinSetupData.name, pinSetupData.number, pin);
+  }
+
+  /**
+   * 단순한 PIN 체크
+   */
+  function isSimplePin(pin) {
+    const simplePins = [
+      '000000', '111111', '222222', '333333', '444444',
+      '555555', '666666', '777777', '888888', '999999',
+      '123456', '654321', '012345', '123123'
+    ];
+
+    return simplePins.includes(pin);
+  }
+</script>

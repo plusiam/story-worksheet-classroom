@@ -1,0 +1,477 @@
+<script>
+  /* ============================================
+     교사 초기 설정 마법사
+     - 시스템 모드 선택 (학급/개인) 추가
+     ============================================ */
+
+  let wizardStep = 1;
+  let wizardData = {};
+
+  function renderTeacherSetupWizard(container) {
+    wizardStep = 1;
+    wizardData = { systemMode: 'classroom' };  // 기본값: 학급 모드
+
+    renderWizardStep(container);
+  }
+
+  function renderWizardStep(container) {
+    // 개인 모드일 경우 단계 축소 (학급 정보 스킵)
+    const isPersonalMode = wizardData.systemMode === 'personal';
+
+    const steps = isPersonalMode ? [
+      { title: '환영합니다', render: renderWizardStep1 },
+      { title: '사용 모드', render: renderWizardStepMode },
+      { title: '사용자 정보', render: renderWizardStep2Personal },
+      { title: '보안 설정', render: renderWizardStepPin },
+      { title: '완료', render: renderWizardStep4 }
+    ] : [
+      { title: '환영합니다', render: renderWizardStep1 },
+      { title: '사용 모드', render: renderWizardStepMode },
+      { title: '선생님 정보', render: renderWizardStep2 },
+      { title: '보안 설정', render: renderWizardStepPin },
+      { title: '학급 정보', render: renderWizardStep3 },
+      { title: '완료', render: renderWizardStep4 }
+    ];
+
+    const totalSteps = steps.length;
+    const currentStep = steps[wizardStep - 1];
+
+    if (!currentStep) {
+      // 개인 모드로 전환 시 단계 조정
+      wizardStep = Math.min(wizardStep, totalSteps);
+      renderWizardStep(container);
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="container-narrow fade-in">
+        <div class="card card-rainbow-top" style="padding-top: 30px;">
+          ${renderProgressSteps(wizardStep, totalSteps)}
+
+          <div class="text-center mb-3">
+            <h2>${currentStep.title}</h2>
+          </div>
+
+          <div id="wizard-content">
+            ${currentStep.render()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 마법사 1단계: 환영
+   */
+  function renderWizardStep1() {
+    return `
+      <div class="text-center">
+        <div style="font-size: 5rem; margin-bottom: 24px;">📚</div>
+        <h1 class="title-handwriting" style="color: var(--primary); margin-bottom: 16px;">
+          스토리 구성 웹학습지
+        </h1>
+        <p style="color: var(--text-light); margin-bottom: 24px;">
+          나만의 스토리 학습지 시스템을 만들어보세요!<br>
+          약 2분 정도 소요됩니다.
+        </p>
+
+        <div class="card" style="background: var(--primary-light); text-align: left; margin-bottom: 24px;">
+          <h4 style="margin-bottom: 12px;">✨ 이런 것들을 할 수 있어요</h4>
+          <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+            <li>4컷 스토리를 쉽게 만들 수 있어요</li>
+            <li>AI 그림책 생성을 위한 내보내기 기능</li>
+            <li>QR 코드로 쉽게 접속 (학급 모드)</li>
+            <li>학생 작품 관리 (학급 모드)</li>
+          </ul>
+        </div>
+
+        <button class="btn btn-primary btn-lg" onclick="nextWizardStep()">
+          시작하기 →
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * 마법사 2단계: 사용 모드 선택
+   */
+  function renderWizardStepMode() {
+    const currentMode = wizardData.systemMode || 'classroom';
+
+    return `
+      <div class="text-center mb-3">
+        <p style="color: var(--text-light);">
+          어떤 용도로 사용하실 건가요?
+        </p>
+      </div>
+
+      <div class="mode-selection" style="display: flex; flex-direction: column; gap: 16px;">
+        <!-- 학급 모드 -->
+        <div class="mode-card ${currentMode === 'classroom' ? 'selected' : ''}"
+             onclick="selectSystemMode('classroom')"
+             style="border: 2px solid ${currentMode === 'classroom' ? 'var(--primary)' : 'var(--border)'};
+                    border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s;
+                    background: ${currentMode === 'classroom' ? 'var(--primary-light)' : 'white'};">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="font-size: 2.5rem;">👩‍🏫</div>
+            <div style="text-align: left; flex: 1;">
+              <h3 style="margin: 0 0 4px 0; color: var(--text);">학급 모드</h3>
+              <p style="margin: 0; color: var(--text-light); font-size: 0.9rem;">
+                교사가 학생들을 관리하며 사용
+              </p>
+              <ul style="margin: 8px 0 0 0; padding-left: 16px; font-size: 0.85rem; color: var(--text-light);">
+                <li>학생 로그인 시스템</li>
+                <li>QR 코드 출석/접속</li>
+                <li>학생별 작품 관리</li>
+              </ul>
+            </div>
+            ${currentMode === 'classroom' ? '<span style="color: var(--primary); font-size: 1.5rem;">✓</span>' : ''}
+          </div>
+        </div>
+
+        <!-- 개인 모드 -->
+        <div class="mode-card ${currentMode === 'personal' ? 'selected' : ''}"
+             onclick="selectSystemMode('personal')"
+             style="border: 2px solid ${currentMode === 'personal' ? 'var(--primary)' : 'var(--border)'};
+                    border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s;
+                    background: ${currentMode === 'personal' ? 'var(--primary-light)' : 'white'};">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="font-size: 2.5rem;">🎨</div>
+            <div style="text-align: left; flex: 1;">
+              <h3 style="margin: 0 0 4px 0; color: var(--text);">개인 모드</h3>
+              <p style="margin: 0; color: var(--text-light); font-size: 0.9rem;">
+                혼자서 콘텐츠를 제작할 때 사용
+              </p>
+              <ul style="margin: 8px 0 0 0; padding-left: 16px; font-size: 0.85rem; color: var(--text-light);">
+                <li>로그인 없이 바로 시작</li>
+                <li>유튜버, 콘텐츠 크리에이터용</li>
+                <li>개인 학습/창작용</li>
+              </ul>
+            </div>
+            ${currentMode === 'personal' ? '<span style="color: var(--primary); font-size: 1.5rem;">✓</span>' : ''}
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 mt-3">
+        <button type="button" class="btn btn-outline" onclick="prevWizardStep()">
+          ← 이전
+        </button>
+        <button type="button" class="btn btn-primary" style="flex: 1;" onclick="nextWizardStep()">
+          다음 →
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * 시스템 모드 선택
+   */
+  function selectSystemMode(mode) {
+    wizardData.systemMode = mode;
+    renderWizardStep(document.getElementById('app'));
+  }
+
+  /**
+   * 마법사 3단계: 선생님 정보 (학급 모드)
+   */
+  function renderWizardStep2() {
+    return `
+      <form id="wizard-form-2" onsubmit="submitWizardStep2(event)">
+        <div class="form-group">
+          <label class="form-label" for="teacher-name">선생님 성함 *</label>
+          <input type="text" id="teacher-name" name="teacherName" class="form-input form-input-lg"
+                 placeholder="예: 김영희" value="${escapeHtml(wizardData.teacherName || '')}" required>
+          <p class="form-helper">학생들에게 표시되는 이름이에요</p>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline" onclick="prevWizardStep()">
+            ← 이전
+          </button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">
+            다음 →
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  /**
+   * 마법사 3단계: 사용자 정보 (개인 모드)
+   */
+  function renderWizardStep2Personal() {
+    return `
+      <form id="wizard-form-2" onsubmit="submitWizardStep2Personal(event)">
+        <div class="form-group">
+          <label class="form-label" for="user-name">닉네임 *</label>
+          <input type="text" id="user-name" name="userName" class="form-input form-input-lg"
+                 placeholder="예: 스토리작가" value="${escapeHtml(wizardData.teacherName || '')}" required>
+          <p class="form-helper">작품에 표시될 이름이에요</p>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline" onclick="prevWizardStep()">
+            ← 이전
+          </button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">
+            다음 →
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  function submitWizardStep2(event) {
+    event.preventDefault();
+
+    const teacherName = document.getElementById('teacher-name').value.trim();
+
+    if (!teacherName) {
+      showFieldError('teacher-name', '선생님 성함을 입력해주세요.');
+      return;
+    }
+
+    wizardData.teacherName = teacherName;
+    nextWizardStep();
+  }
+
+  function submitWizardStep2Personal(event) {
+    event.preventDefault();
+
+    const userName = document.getElementById('user-name').value.trim();
+
+    if (!userName) {
+      showFieldError('user-name', '닉네임을 입력해주세요.');
+      return;
+    }
+
+    wizardData.teacherName = userName;  // 같은 필드 사용
+    nextWizardStep();
+  }
+
+  /**
+   * 마법사 PIN 단계: 교사/관리자 PIN 설정
+   */
+  function renderWizardStepPin() {
+    const isPersonal = wizardData.systemMode === 'personal';
+
+    return `
+      <div class="text-center mb-3">
+        <div style="font-size: 3rem; margin-bottom: 16px;">🔐</div>
+        <p style="color: var(--text-light);">
+          ${isPersonal ? '설정 화면을 보호하기 위한' : '다른 사람이 교사 모드에 접근하지 못하도록'}<br>
+          <strong>${isPersonal ? '관리자 PIN' : '교사 전용 PIN'}</strong>을 설정해주세요.
+        </p>
+      </div>
+
+      <form id="wizard-form-pin" onsubmit="submitWizardStepPin(event)">
+        <div class="form-group">
+          <label class="form-label">${isPersonal ? '관리자' : '교사'} PIN (4~6자리 숫자) *</label>
+          <div id="teacher-pin-setup" class="pin-input-container" style="justify-content: center;">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric" style="opacity: 0.5;">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric" style="opacity: 0.5;">
+          </div>
+          <p class="form-helper" style="text-align: center;">
+            이 PIN은 본인만 알고 계셔야 합니다!
+          </p>
+        </div>
+
+        <div class="card" style="background: var(--warning-light); margin-top: 16px;">
+          <p style="font-size: 0.9rem; margin: 0;">
+            <strong>⚠️ 중요:</strong> 이 PIN을 잊어버리면 스프레드시트의 SETTINGS 시트에서
+            <code>teacherPinHash</code> 행을 삭제해야 재설정할 수 있습니다.
+          </p>
+        </div>
+
+        <div id="pin-error" class="alert alert-error" style="display: none;"></div>
+
+        <div class="flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline" onclick="prevWizardStep()">
+            ← 이전
+          </button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">
+            ${wizardData.systemMode === 'personal' ? '완료하기 🎉' : '다음 →'}
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  async function submitWizardStepPin(event) {
+    event.preventDefault();
+
+    const container = document.getElementById('teacher-pin-setup');
+    const inputs = container.querySelectorAll('.pin-input');
+    const pin = Array.from(inputs).map(input => input.value).join('');
+    const errorDiv = document.getElementById('pin-error');
+
+    if (pin.length < 4) {
+      errorDiv.textContent = 'PIN은 최소 4자리를 입력해주세요.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    if (!/^\d+$/.test(pin)) {
+      errorDiv.textContent = 'PIN은 숫자만 입력할 수 있습니다.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    errorDiv.style.display = 'none';
+    showLoading('PIN 설정 중...');
+
+    try {
+      const result = await callApi('setTeacherPin', { pin: pin });
+
+      if (result.success) {
+        wizardData.teacherPinSet = true;
+        hideLoading();
+
+        // 개인 모드면 바로 완료 처리
+        if (wizardData.systemMode === 'personal') {
+          completeTeacherSetup(wizardData);
+        } else {
+          nextWizardStep();
+        }
+      } else {
+        hideLoading();
+        errorDiv.textContent = result.error || 'PIN 설정에 실패했습니다.';
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      hideLoading();
+      errorDiv.textContent = '오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    }
+  }
+
+  // PIN 입력 설정 (마법사용)
+  function setupWizardPinInput() {
+    const container = document.getElementById('teacher-pin-setup');
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('.pin-input');
+
+    inputs.forEach((input, index) => {
+      input.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        if (e.target.value && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !e.target.value && index > 0) {
+          inputs[index - 1].focus();
+        }
+      });
+    });
+
+    inputs[0]?.focus();
+  }
+
+  /**
+   * 마법사: 학급 정보 (학급 모드 전용)
+   */
+  function renderWizardStep3() {
+    return `
+      <form id="wizard-form-3" onsubmit="submitWizardStep3(event)">
+        <div class="form-group">
+          <label class="form-label" for="school-name">학교 이름</label>
+          <input type="text" id="school-name" name="schoolName" class="form-input"
+                 placeholder="예: 서울초등학교" value="${escapeHtml(wizardData.schoolName || '')}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="class-name">학급</label>
+          <input type="text" id="class-name" name="className" class="form-input"
+                 placeholder="예: 4학년 2반" value="${escapeHtml(wizardData.className || '')}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="welcome-message">환영 메시지</label>
+          <textarea id="welcome-message" name="welcomeMessage" class="form-input" rows="2"
+                    placeholder="예: 오늘도 멋진 이야기를 만들어볼까요? 🌟">${escapeHtml(wizardData.welcomeMessage || '오늘도 멋진 이야기를 만들어볼까요! 🌟')}</textarea>
+          <p class="form-helper">학생들이 로그인할 때 보이는 메시지예요</p>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline" onclick="prevWizardStep()">
+            ← 이전
+          </button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">
+            완료하기 🎉
+          </button>
+        </div>
+      </form>
+    `;
+  }
+
+  function submitWizardStep3(event) {
+    event.preventDefault();
+
+    wizardData.schoolName = document.getElementById('school-name').value.trim();
+    wizardData.className = document.getElementById('class-name').value.trim();
+    wizardData.welcomeMessage = document.getElementById('welcome-message').value.trim();
+
+    // 설정 저장
+    completeTeacherSetup(wizardData);
+  }
+
+  /**
+   * 마법사 완료 단계
+   */
+  function renderWizardStep4() {
+    const isPersonal = wizardData.systemMode === 'personal';
+
+    return `
+      <div class="text-center">
+        <div style="font-size: 5rem; margin-bottom: 24px;">🎉</div>
+        <h2>설정이 완료되었습니다!</h2>
+        <p style="color: var(--text-light); margin-top: 8px;">
+          ${isPersonal
+            ? '이제 바로 스토리를 만들어보세요!'
+            : '이제 학생들을 등록하고 시작해보세요.'}
+        </p>
+
+        <button class="btn btn-primary btn-lg mt-3" onclick="${isPersonal ? "navigateTo('personal-main')" : "navigateTo('teacher-dashboard')"}">
+          ${isPersonal ? '스토리 만들기 →' : '대시보드로 이동 →'}
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * 다음 단계
+   */
+  function nextWizardStep() {
+    const isPersonalMode = wizardData.systemMode === 'personal';
+    const maxSteps = isPersonalMode ? 5 : 6;
+
+    if (wizardStep < maxSteps) {
+      wizardStep++;
+      renderWizardStep(document.getElementById('app'));
+
+      // PIN 입력 단계면 포커스 설정
+      const pinStep = isPersonalMode ? 4 : 4;
+      if (wizardStep === pinStep) {
+        setTimeout(setupWizardPinInput, 100);
+      }
+    }
+  }
+
+  /**
+   * 이전 단계
+   */
+  function prevWizardStep() {
+    if (wizardStep > 1) {
+      wizardStep--;
+      renderWizardStep(document.getElementById('app'));
+    }
+  }
+</script>

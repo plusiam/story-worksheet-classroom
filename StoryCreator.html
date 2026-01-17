@@ -1,0 +1,370 @@
+<script>
+  /* ============================================
+     스토리 크리에이터 - 작품 편집 화면
+     ============================================ */
+
+  let storyData = {
+    step: 1,
+    studentName: '',
+    studentNumber: 0,
+    workData: null
+  };
+
+  const STAGES = [
+    { id: 'beginning', name: '발단', emoji: '🌅', hint: '이야기가 시작되는 부분이에요. 주인공과 배경을 소개해보세요.' },
+    { id: 'development', name: '전개', emoji: '🎭', hint: '사건이 일어나고 이야기가 발전하는 부분이에요.' },
+    { id: 'climax', name: '절정', emoji: '⚡', hint: '가장 중요하고 긴장감 있는 부분이에요.' },
+    { id: 'ending', name: '결말', emoji: '🌈', hint: '이야기가 마무리되는 부분이에요.' }
+  ];
+
+  async function renderStoryCreator(container, data) {
+    storyData = {
+      step: data?.step || 1,
+      studentName: data?.studentName || AppState.currentUser?.name,
+      studentNumber: data?.studentNumber || AppState.currentUser?.number,
+      workData: data?.existingWork?.workData || createEmptyWorkData()
+    };
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderStudentHeader(`STEP ${storyData.step}: 4컷 스토리 만들기`)}
+
+        <!-- 진행 상황 -->
+        <div class="card mb-3">
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 style="margin: 0;">📖 나의 이야기</h3>
+              <input type="text" id="story-title" class="form-input mt-1" style="font-size: 1.2rem; font-weight: 600;"
+                     placeholder="이야기 제목을 입력하세요" value="${escapeHtml(storyData.workData.title || '')}">
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-outline" onclick="saveStory(false)">
+                💾 저장
+              </button>
+              <button class="btn btn-primary" onclick="saveStory(true)">
+                ✅ 완료
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4컷 패널 -->
+        <div class="story-panels">
+          ${renderStoryPanels()}
+        </div>
+
+        <!-- 하단 버튼 -->
+        <div class="flex justify-between mt-3">
+          <button class="btn btn-ghost" onclick="confirmExit()">
+            ← 돌아가기
+          </button>
+          <div class="flex gap-2">
+            <button class="btn btn-outline" onclick="previewStory()">
+              👁️ 미리보기
+            </button>
+            <button class="btn btn-secondary" onclick="exportStory()">
+              📤 내보내기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        .story-panels {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 16px;
+        }
+
+        @media (max-width: 768px) {
+          .story-panels {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .story-panel {
+          background: var(--card);
+          border-radius: var(--radius);
+          padding: 20px;
+          box-shadow: var(--shadow);
+          position: relative;
+        }
+
+        .story-panel-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 16px;
+          padding-bottom: 12px;
+          border-bottom: 2px solid var(--border);
+        }
+
+        .story-panel-number {
+          width: 36px;
+          height: 36px;
+          background: var(--primary);
+          color: white;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+        }
+
+        .story-panel-stage {
+          font-size: 1.5rem;
+        }
+
+        .story-textarea {
+          width: 100%;
+          min-height: 100px;
+          padding: 12px;
+          border: 2px solid var(--border);
+          border-radius: var(--radius-sm);
+          font-family: inherit;
+          font-size: 1rem;
+          resize: vertical;
+          transition: var(--transition);
+        }
+
+        .story-textarea:focus {
+          outline: none;
+          border-color: var(--primary);
+        }
+
+        .story-hint {
+          color: var(--text-muted);
+          font-size: 0.85rem;
+          margin-top: 8px;
+          padding: 8px 12px;
+          background: var(--bg);
+          border-radius: var(--radius-sm);
+        }
+      </style>
+    `;
+
+    // 자동 저장 설정 (30초마다)
+    startAutoSave();
+  }
+
+  /**
+   * 빈 작품 데이터 생성
+   */
+  function createEmptyWorkData() {
+    return {
+      title: '',
+      panels: STAGES.map((stage, index) => ({
+        id: index + 1,
+        stage: stage.id,
+        stageName: stage.name,
+        description: '',
+        dialogue: ''
+      })),
+      version: 1
+    };
+  }
+
+  /**
+   * 스토리 패널 렌더링
+   */
+  function renderStoryPanels() {
+    return storyData.workData.panels.map((panel, index) => {
+      const stage = STAGES[index];
+      return `
+        <div class="story-panel slide-up" style="animation-delay: ${index * 0.1}s;">
+          <div class="story-panel-header">
+            <div class="story-panel-number">${panel.id}</div>
+            <span class="story-panel-stage">${stage.emoji}</span>
+            <div>
+              <strong>${stage.name}</strong>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">장면 설명</label>
+            <textarea id="panel-desc-${panel.id}" class="story-textarea"
+                      placeholder="이 장면에서 무슨 일이 일어나나요?"
+                      onchange="updatePanel(${panel.id}, 'description', this.value)">${escapeHtml(panel.description || '')}</textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">대사 (선택)</label>
+            <textarea id="panel-dialogue-${panel.id}" class="story-textarea" style="min-height: 60px;"
+                      placeholder="등장인물이 하는 말을 적어보세요"
+                      onchange="updatePanel(${panel.id}, 'dialogue', this.value)">${escapeHtml(panel.dialogue || '')}</textarea>
+          </div>
+
+          <div class="story-hint">
+            💡 ${stage.hint}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /**
+   * 패널 데이터 업데이트
+   */
+  function updatePanel(panelId, field, value) {
+    const panel = storyData.workData.panels.find(p => p.id === panelId);
+    if (panel) {
+      panel[field] = value;
+    }
+  }
+
+  /**
+   * 작품 저장
+   */
+  async function saveStory(isComplete = false) {
+    // 제목 업데이트
+    storyData.workData.title = document.getElementById('story-title').value.trim();
+
+    // 각 패널 데이터 수집
+    storyData.workData.panels.forEach(panel => {
+      const descEl = document.getElementById(`panel-desc-${panel.id}`);
+      const dialogueEl = document.getElementById(`panel-dialogue-${panel.id}`);
+
+      if (descEl) panel.description = descEl.value;
+      if (dialogueEl) panel.dialogue = dialogueEl.value;
+    });
+
+    // 완료 여부 체크
+    if (isComplete) {
+      // 필수 항목 확인
+      const emptyPanels = storyData.workData.panels.filter(p => !p.description.trim());
+      if (emptyPanels.length > 0) {
+        showToast('모든 장면의 설명을 입력해주세요!', 'warning');
+        return;
+      }
+
+      if (!storyData.workData.title.trim()) {
+        showToast('이야기 제목을 입력해주세요!', 'warning');
+        document.getElementById('story-title').focus();
+        return;
+      }
+    }
+
+    try {
+      showLoading('저장 중...');
+
+      const result = await callApi('saveWork', {
+        studentName: storyData.studentName,
+        studentNumber: storyData.studentNumber,
+        step: storyData.step,
+        workData: {
+          ...storyData.workData,
+          isComplete: isComplete,
+          status: isComplete ? 'submitted' : 'draft'
+        }
+      });
+
+      if (result.success) {
+        if (isComplete) {
+          showToast('작품이 완료되었습니다! 🎉', 'success');
+          navigateTo('student-main');
+        } else {
+          showToast('저장되었습니다!', 'success');
+        }
+      } else {
+        showToast(result.error || '저장에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('저장 오류:', error);
+      showToast('저장 중 오류가 발생했습니다.', 'error');
+    }
+  }
+
+  /**
+   * 자동 저장
+   */
+  let autoSaveInterval = null;
+
+  function startAutoSave() {
+    stopAutoSave();
+    autoSaveInterval = setInterval(() => {
+      saveStory(false);
+    }, 30000); // 30초마다
+  }
+
+  function stopAutoSave() {
+    if (autoSaveInterval) {
+      clearInterval(autoSaveInterval);
+      autoSaveInterval = null;
+    }
+  }
+
+  /**
+   * 나가기 확인
+   */
+  function confirmExit() {
+    showConfirm(
+      '저장하지 않은 내용이 있을 수 있습니다. 나가시겠습니까?',
+      () => {
+        stopAutoSave();
+        navigateTo('student-main');
+      }
+    );
+  }
+
+  /**
+   * 미리보기
+   */
+  function previewStory() {
+    // 현재 데이터 수집
+    storyData.workData.title = document.getElementById('story-title').value.trim();
+    storyData.workData.panels.forEach(panel => {
+      const descEl = document.getElementById(`panel-desc-${panel.id}`);
+      const dialogueEl = document.getElementById(`panel-dialogue-${panel.id}`);
+      if (descEl) panel.description = descEl.value;
+      if (dialogueEl) panel.dialogue = dialogueEl.value;
+    });
+
+    const title = storyData.workData.title || '제목 없음';
+
+    showModal({
+      title: `👁️ 미리보기: ${escapeHtml(title)}`,
+      content: `
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+          ${storyData.workData.panels.map((panel, index) => `
+            <div style="background: var(--bg); padding: 12px; border-radius: 8px;">
+              <div style="font-weight: 600; margin-bottom: 8px;">
+                ${STAGES[index].emoji} ${panel.stageName}
+              </div>
+              <p style="font-size: 0.9rem; margin: 0;">${escapeHtml(panel.description) || '<span style="color: var(--text-muted);">(설명 없음)</span>'}</p>
+              ${panel.dialogue ? `
+                <p style="margin-top: 8px; font-style: italic; color: var(--primary);">
+                  "${escapeHtml(panel.dialogue)}"
+                </p>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `,
+      buttons: [
+        { text: '닫기', class: 'btn-primary' }
+      ]
+    });
+  }
+
+  /**
+   * 내보내기
+   */
+  async function exportStory() {
+    try {
+      const result = await callApi('exportWork', {
+        studentName: storyData.studentName,
+        studentNumber: storyData.studentNumber,
+        step: storyData.step
+      });
+
+      if (result.success && result.json) {
+        downloadJSON(result.json, `스토리_${storyData.studentName}_STEP${storyData.step}.json`);
+        showToast('내보내기 완료!', 'success');
+      } else {
+        showToast(result.error || '내보내기에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      showToast('내보내기 중 오류가 발생했습니다.', 'error');
+    }
+  }
+</script>

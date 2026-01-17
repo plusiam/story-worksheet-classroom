@@ -1,0 +1,334 @@
+<script>
+  /* ============================================
+     교사 로그인 화면
+     ============================================ */
+
+  /**
+   * 교사 로그인 화면 렌더링
+   */
+  function renderTeacherLogin(container, data = {}) {
+    const settings = AppState.settings || {};
+    const isFirstSetup = data.isFirstSetup;
+    const hasPin = data.hasPin;
+
+    container.innerHTML = `
+      <div class="container-narrow fade-in" role="main" aria-label="교사 로그인 페이지">
+        <!-- 헤더 -->
+        <header class="card card-rainbow-top" style="margin-bottom: 24px; padding-top: 30px;" role="banner">
+          <div class="text-center">
+            <h1 class="title-handwriting" style="color: var(--primary); font-size: 1.8rem;">
+              📚 스토리 학습지
+            </h1>
+            <p style="color: var(--text-light); margin-top: 8px;">
+              <span class="badge" style="background: var(--primary); color: white;" role="status">선생님 모드</span>
+            </p>
+          </div>
+        </header>
+
+        <div class="card slide-up" role="region" aria-label="교사 로그인 영역">
+          ${isFirstSetup ? renderFirstSetupPrompt() : renderLoginForm(hasPin, settings)}
+        </div>
+
+        <nav class="text-center mt-3" aria-label="페이지 내비게이션">
+          <a href="javascript:void(0)" onclick="backToStudentLogin()"
+             style="color: var(--text-light); font-size: 0.85rem;"
+             role="button" aria-label="학생 로그인 페이지로 돌아가기">
+            ← 학생 로그인으로 돌아가기
+          </a>
+        </nav>
+      </div>
+    `;
+
+    // PIN 입력 설정
+    if (!isFirstSetup && hasPin) {
+      setTimeout(() => setupTeacherPinInput(), 100);
+    }
+  }
+
+  /**
+   * 첫 설정 안내
+   */
+  function renderFirstSetupPrompt() {
+    return `
+      <div class="text-center" role="region" aria-labelledby="welcome-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">👋</div>
+        <h2 id="welcome-title">처음 오셨군요!</h2>
+        <p style="color: var(--text-light); margin-bottom: 24px;" id="welcome-description">
+          스토리 학습지를 처음 사용하시네요.<br>
+          간단한 설정을 완료해주세요.
+        </p>
+
+        <div class="card" style="background: var(--warning-light); text-align: left; margin-bottom: 24px;"
+             role="alert" aria-label="보안 안내">
+          <h4 style="color: var(--warning-dark); margin-bottom: 8px;">🔐 보안 안내</h4>
+          <p style="font-size: 0.9rem; color: var(--text);">
+            설정 과정에서 <strong>교사 PIN</strong>을 만들게 됩니다.<br>
+            이 PIN은 선생님만 알고 계셔야 합니다.
+          </p>
+        </div>
+
+        <button class="btn btn-primary btn-lg btn-block" onclick="navigateTo('teacher-setup')"
+                aria-describedby="welcome-description">
+          설정 시작하기 →
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * 교사 로그인 폼
+   */
+  function renderLoginForm(hasPin, settings) {
+    const teacherName = settings.teacherName || '';
+
+    if (!hasPin) {
+      // PIN이 아직 설정되지 않음 (마이그레이션 필요)
+      return `
+        <div class="text-center" role="form" aria-labelledby="pin-setup-title">
+          <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">🔐</div>
+          <h2 id="pin-setup-title">교사 PIN 설정 필요</h2>
+          <p style="color: var(--text-light); margin-bottom: 24px;" id="pin-setup-description">
+            보안 강화를 위해 교사 PIN을 설정해주세요.<br>
+            다른 사람이 교사 모드에 접근하는 것을 방지합니다.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" for="new-pin-1" id="new-pin-label">새 PIN (4~6자리 숫자)</label>
+            <div id="new-teacher-pin" class="pin-input-container pin-4" role="group" aria-labelledby="new-pin-label">
+              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                     id="new-pin-1" aria-label="PIN 첫 번째 자리">
+              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                     aria-label="PIN 두 번째 자리">
+              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                     aria-label="PIN 세 번째 자리">
+              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                     aria-label="PIN 네 번째 자리">
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-lg btn-block mt-3" onclick="submitNewTeacherPin()"
+                  aria-describedby="pin-setup-description">
+            PIN 설정하기
+          </button>
+        </div>
+      `;
+    }
+
+    // PIN이 있으면 로그인 폼
+    return `
+      <div class="text-center" role="form" aria-labelledby="login-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">👩‍🏫</div>
+        <h2 id="login-title">${teacherName ? escapeHtml(teacherName) + ' 선생님' : '선생님'}</h2>
+        <p style="color: var(--text-light); margin-bottom: 24px;" id="login-description">
+          교사 PIN을 입력해주세요
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="teacher-pin-1" id="teacher-pin-label">교사 PIN</label>
+          <div id="teacher-pin" class="pin-input-container pin-4" role="group" aria-labelledby="teacher-pin-label">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                   id="teacher-pin-1" aria-label="PIN 첫 번째 자리">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                   aria-label="PIN 두 번째 자리">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                   aria-label="PIN 세 번째 자리">
+            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
+                   aria-label="PIN 네 번째 자리">
+          </div>
+        </div>
+
+        <div id="login-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
+
+        <button class="btn btn-primary btn-lg btn-block mt-3" onclick="submitTeacherLogin()"
+                aria-describedby="login-description">
+          로그인
+        </button>
+
+        <p class="mt-3" style="color: var(--text-light); font-size: 0.85rem;" aria-describedby="pin-reset-help">
+          PIN을 잊으셨나요? 스프레드시트 SETTINGS 시트에서<br>
+          <code>teacherPinHash</code> 행을 삭제하면 재설정됩니다.
+        </p>
+      </div>
+    `;
+  }
+
+  /**
+   * 교사 PIN 입력 설정
+   */
+  function setupTeacherPinInput() {
+    const container = document.getElementById('teacher-pin') || document.getElementById('new-teacher-pin');
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('.pin-input');
+
+    inputs.forEach((input, index) => {
+      // 숫자만 입력
+      input.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        if (e.target.value && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+      });
+
+      // 백스페이스로 이전 칸 이동
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !e.target.value && index > 0) {
+          inputs[index - 1].focus();
+        }
+        // 엔터로 제출
+        if (e.key === 'Enter') {
+          const btn = document.querySelector('button[onclick*="submitTeacher"]');
+          if (btn) btn.click();
+        }
+      });
+    });
+
+    // 첫 번째 입력에 포커스
+    inputs[0]?.focus();
+  }
+
+  /**
+   * 교사 PIN 값 가져오기
+   */
+  function getTeacherPinValue(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return '';
+
+    const inputs = container.querySelectorAll('.pin-input');
+    return Array.from(inputs).map(input => input.value).join('');
+  }
+
+  /**
+   * 새 교사 PIN 설정 제출
+   */
+  async function submitNewTeacherPin() {
+    const pin = getTeacherPinValue('new-teacher-pin');
+
+    if (pin.length < 4) {
+      showToast('PIN은 4자리 이상 입력해주세요.', 'error');
+      return;
+    }
+
+    showLoading('PIN 설정 중...');
+
+    try {
+      const result = await callApi('setTeacherPin', { pin: pin });
+
+      if (result.success) {
+        showToast('교사 PIN이 설정되었습니다!', 'success');
+        // 다시 로그인 화면으로
+        checkAndShowTeacherLogin();
+      } else {
+        showToast(result.error || 'PIN 설정에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      showToast('오류가 발생했습니다.', 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 교사 로그인 제출
+   */
+  async function submitTeacherLogin() {
+    const pin = getTeacherPinValue('teacher-pin');
+    const errorDiv = document.getElementById('login-error');
+
+    if (pin.length < 4) {
+      errorDiv.textContent = 'PIN을 입력해주세요.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    errorDiv.style.display = 'none';
+    showLoading('로그인 중...');
+
+    try {
+      const result = await callApi('loginTeacher', { pin: pin });
+
+      if (result.success) {
+        // 교사 토큰 저장
+        AppState.teacherToken = result.teacherToken;
+        AppState.isTeacher = true;
+        sessionStorage.setItem('teacherToken', result.teacherToken);
+
+        showToast(`${result.teacherName || '선생님'}, 환영합니다!`, 'success');
+        navigateTo('teacher-dashboard');
+      } else {
+        errorDiv.textContent = result.error || '로그인에 실패했습니다.';
+        errorDiv.style.display = 'block';
+        // PIN 입력 초기화
+        clearTeacherPinInput('teacher-pin');
+      }
+    } catch (error) {
+      errorDiv.textContent = '오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * PIN 입력 초기화
+   */
+  function clearTeacherPinInput(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('.pin-input');
+    inputs.forEach(input => input.value = '');
+    inputs[0]?.focus();
+  }
+
+  /**
+   * 학생 로그인으로 돌아가기
+   */
+  function backToStudentLogin() {
+    AppState.isTeacher = false;
+    navigateTo('login');
+  }
+
+  /**
+   * 교사 로그인 화면 표시 (조건 확인)
+   */
+  async function checkAndShowTeacherLogin() {
+    showLoading('확인 중...');
+
+    try {
+      // 먼저 Google 계정 권한 확인
+      const googleAuth = await callApi('checkGoogleAuth');
+
+      if (googleAuth.isAuthorized) {
+        // Google 계정으로 인증됨 - 바로 대시보드로
+        AppState.isTeacher = true;
+        const firstSetup = await callApi('isFirstSetup');
+
+        if (firstSetup.isFirstSetup) {
+          navigateTo('teacher-setup');
+        } else {
+          navigateTo('teacher-dashboard');
+        }
+        return;
+      }
+
+      // Google 계정이 아니면 PIN 확인
+      const [firstSetup, hasPin] = await Promise.all([
+        callApi('isFirstSetup'),
+        callApi('hasTeacherPin')
+      ]);
+
+      navigateTo('teacher-login', {
+        isFirstSetup: firstSetup.isFirstSetup,
+        hasPin: hasPin.hasPin
+      });
+
+    } catch (error) {
+      console.error('교사 로그인 확인 실패:', error);
+      showToast('오류가 발생했습니다.', 'error');
+      navigateTo('login');
+    } finally {
+      hideLoading();
+    }
+  }
+</script>

@@ -1,0 +1,359 @@
+<script>
+  /* ============================================
+     공통 컴포넌트
+     ============================================ */
+
+  /**
+   * 날짜 형식인지 체크 (잘못 저장된 데이터 필터링)
+   */
+  function isDateString(str) {
+    if (!str || typeof str !== 'string') return false;
+    // ISO 날짜 형식 체크: 2026-04-01T15:00:00.000Z
+    return /^\d{4}-\d{2}-\d{2}T/.test(str);
+  }
+
+  /**
+   * 설정값 안전하게 가져오기 (날짜 형식이면 빈 문자열 반환)
+   */
+  function safeSettingValue(value) {
+    if (!value) return '';
+    if (isDateString(value)) return '';  // 잘못 저장된 날짜값 필터링
+    return value;
+  }
+
+  /**
+   * 헤더 컴포넌트 (학생용)
+   */
+  function renderStudentHeader(title = '') {
+    const settings = AppState.settings || {};
+    const user = AppState.currentUser;
+    const teacherName = settings.teacherName ? `${escapeHtml(settings.teacherName)} 선생님의 ` : '';
+    const schoolName = safeSettingValue(settings.schoolName);
+    const className = safeSettingValue(settings.className);
+
+    return `
+      <header class="card card-rainbow-top" style="margin-bottom: 24px; padding-top: 30px;">
+        <div class="flex justify-between items-center">
+          <div>
+            <h1 class="title-handwriting" style="color: var(--primary);">
+              ${teacherName}스토리 학습지
+            </h1>
+            ${schoolName || className ? `
+              <p style="color: var(--text-light); margin-top: 4px;">
+                ${escapeHtml(schoolName)} ${escapeHtml(className)}
+              </p>
+            ` : ''}
+          </div>
+          ${user ? `
+            <div class="flex items-center gap-2">
+              <span class="badge badge-active">${escapeHtml(user.name)} (${user.number}번)</span>
+              <button class="btn btn-sm btn-ghost" onclick="logout()">로그아웃</button>
+            </div>
+          ` : ''}
+        </div>
+        ${title ? `<h2 style="margin-top: 16px;">${escapeHtml(title)}</h2>` : ''}
+      </header>
+    `;
+  }
+
+  /**
+   * 헤더 컴포넌트 (교사용)
+   */
+  function renderTeacherHeader(title = '', activeTab = 'dashboard') {
+    const settings = AppState.settings || {};
+    const teacherName = settings.teacherName ? `${escapeHtml(settings.teacherName)} 선생님의 ` : '';
+    const schoolName = safeSettingValue(settings.schoolName);
+    const className = safeSettingValue(settings.className);
+
+    const tabs = [
+      { id: 'dashboard', label: '대시보드', icon: '📊', route: 'teacher-dashboard' },
+      { id: 'students', label: '학생 관리', icon: '👨‍🎓', route: 'teacher-students' },
+      { id: 'qr', label: 'QR 코드', icon: '📱', route: 'teacher-qr' },
+      { id: 'settings', label: '설정', icon: '⚙️', route: 'teacher-settings' }
+    ];
+
+    return `
+      <header class="card card-rainbow-top" style="margin-bottom: 24px; padding-top: 30px;">
+        <div class="flex justify-between items-center mb-2">
+          <div>
+            <h1 class="title-handwriting" style="color: var(--primary);">
+              ${teacherName}스토리 학습지
+            </h1>
+            <p style="color: var(--text-light); margin-top: 4px;">
+              <span class="badge" style="background: var(--primary); color: white; font-size: 0.75rem;">선생님 모드</span>
+              ${schoolName || className ? `
+                ${escapeHtml(schoolName)} ${escapeHtml(className)}
+              ` : ''}
+            </p>
+          </div>
+          <div class="flex gap-1">
+            <button class="btn btn-sm btn-ghost" onclick="backToStudentMode()">
+              👁️ 학생 화면
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="teacherLogout()" style="color: var(--error);">
+              🚪 로그아웃
+            </button>
+          </div>
+        </div>
+
+        <nav class="flex gap-1" style="margin-top: 16px; flex-wrap: wrap;">
+          ${tabs.map(tab => `
+            <button class="btn btn-sm ${activeTab === tab.id ? 'btn-primary' : 'btn-ghost'}"
+                    onclick="navigateTo('${tab.route}')">
+              ${tab.icon} ${tab.label}
+            </button>
+          `).join('')}
+        </nav>
+
+        ${title ? `<h2 style="margin-top: 20px;">${escapeHtml(title)}</h2>` : ''}
+      </header>
+    `;
+  }
+
+  /**
+   * 학생 모드로 돌아가기 (미리보기)
+   * 교사 토큰은 유지하면서 학생 화면만 미리보기
+   */
+  function backToStudentMode() {
+    // 교사 토큰은 유지 (나중에 다시 교사 모드로 돌아갈 수 있도록)
+    AppState.isTeacher = false;
+
+    // 시스템 모드에 따라 적절한 화면으로 이동
+    const systemMode = AppState.settings?.systemMode || 'classroom';
+    if (systemMode === 'personal') {
+      navigateTo('personal-main');
+    } else {
+      navigateTo('login');
+    }
+  }
+
+  /**
+   * 교사 로그아웃 (설정 초기화)
+   */
+  function teacherLogout() {
+    showConfirm('로그아웃 하시겠습니까?\\n다른 선생님이 이 컴퓨터를 사용할 수 있습니다.', async () => {
+      // 서버 세션 무효화
+      try {
+        await callApi('logoutTeacher');
+      } catch (e) {
+        console.log('서버 로그아웃 실패:', e);
+      }
+
+      // 클라이언트 상태 초기화
+      AppState.isTeacher = false;
+      AppState.teacherToken = null;
+      AppState.settings = {};
+      AppState.currentUser = null;
+
+      // 세션 스토리지 완전 초기화
+      clearSession();
+      sessionStorage.removeItem('teacherToken');
+
+      showToast('로그아웃 되었습니다.', 'info');
+      navigateTo('login');
+    });
+  }
+
+  /**
+   * 빈 상태 컴포넌트
+   */
+  function renderEmptyState(icon, title, description, actionHtml = '') {
+    return `
+      <div class="empty-state">
+        <div class="empty-state-icon">${icon}</div>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(description)}</p>
+        ${actionHtml}
+      </div>
+    `;
+  }
+
+  /**
+   * 통계 카드 컴포넌트
+   */
+  function renderStatCard(icon, label, value, color = 'primary') {
+    return `
+      <div class="card" style="text-align: center; flex: 1; min-width: 120px;">
+        <div style="font-size: 2rem; margin-bottom: 8px;">${icon}</div>
+        <div style="font-size: 2rem; font-weight: 700; color: var(--${color});">${value}</div>
+        <div style="color: var(--text-light); font-size: 0.9rem;">${escapeHtml(label)}</div>
+      </div>
+    `;
+  }
+
+  /**
+   * 진행 단계 표시 컴포넌트
+   */
+  function renderProgressSteps(currentStep, totalSteps) {
+    let html = '<div class="progress-steps">';
+
+    for (let i = 1; i <= totalSteps; i++) {
+      const isActive = i === currentStep;
+      const isCompleted = i < currentStep;
+
+      html += `
+        <div class="progress-step">
+          <div class="progress-dot ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}">
+            ${isCompleted ? '✓' : i}
+          </div>
+          ${i < totalSteps ? `<div class="progress-line ${isCompleted ? 'completed' : ''}"></div>` : ''}
+        </div>
+      `;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * 학생 상태 배지
+   */
+  function renderStatusBadge(status) {
+    const statusMap = {
+      'active': { class: 'badge-active', label: '활성' },
+      'pending': { class: 'badge-pending', label: 'PIN 대기' },
+      'inactive': { class: 'badge-inactive', label: '비활성' }
+    };
+
+    const config = statusMap[status] || statusMap['inactive'];
+    return `<span class="badge ${config.class}">${config.label}</span>`;
+  }
+
+  /**
+   * 작품 상태 배지
+   */
+  function renderWorkStatusBadge(status, isComplete) {
+    if (isComplete) {
+      return '<span class="badge badge-active">완료</span>';
+    }
+
+    const statusMap = {
+      'draft': { class: 'badge-pending', label: '작성 중' },
+      'submitted': { class: 'badge-active', label: '제출됨' },
+      'published': { class: 'badge-active', label: '공개됨' }
+    };
+
+    const config = statusMap[status] || statusMap['draft'];
+    return `<span class="badge ${config.class}">${config.label}</span>`;
+  }
+
+  /**
+   * 환영 메시지 카드
+   */
+  function renderWelcomeCard() {
+    const settings = AppState.settings || {};
+    const user = AppState.currentUser;
+
+    return `
+      <div class="card" style="background: linear-gradient(135deg, var(--primary-light), var(--secondary-light)); margin-bottom: 24px;">
+        <h2 style="margin-bottom: 8px;">👋 안녕, ${escapeHtml(user?.name || '친구')}!</h2>
+        <p style="color: var(--text-light);">
+          ${escapeHtml(settings.welcomeMessage || '오늘도 멋진 이야기를 만들어볼까요? 🌟')}
+        </p>
+      </div>
+    `;
+  }
+
+  /**
+   * 학습 단계 카드
+   */
+  function renderStepCard(step, title, description, icon, isActive = false, isLocked = false) {
+    const cardClass = isLocked ? 'opacity: 0.5;' : '';
+    const cursorClass = isLocked ? 'cursor: not-allowed;' : 'cursor: pointer;';
+
+    return `
+      <div class="card ${isActive ? 'active-step' : ''}"
+           style="${cardClass} ${cursorClass} transition: transform 0.2s;"
+           onclick="${isLocked ? '' : `startStep(${step})`}"
+           onmouseover="this.style.transform='translateY(-4px)'"
+           onmouseout="this.style.transform='translateY(0)'">
+        <div class="flex items-center gap-2 mb-2">
+          <span style="font-size: 2rem;">${icon}</span>
+          <div>
+            <h3 style="margin: 0;">STEP ${step}</h3>
+            <p style="font-weight: 600; margin: 0;">${escapeHtml(title)}</p>
+          </div>
+          ${isLocked ? '<span style="margin-left: auto;">🔒</span>' : ''}
+        </div>
+        <p style="color: var(--text-light); font-size: 0.9rem;">${escapeHtml(description)}</p>
+      </div>
+    `;
+  }
+
+  /**
+   * 학생 목록 테이블
+   */
+  function renderStudentTable(students) {
+    if (!students || students.length === 0) {
+      return renderEmptyState(
+        '👨‍🎓',
+        '등록된 학생이 없습니다',
+        '학생을 등록해주세요.',
+        '<button class="btn btn-primary mt-2" onclick="showAddStudentModal()">학생 등록하기</button>'
+      );
+    }
+
+    return `
+      <div class="table-container">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>번호</th>
+              <th>이름</th>
+              <th>상태</th>
+              <th>마지막 접속</th>
+              <th class="hide-mobile">등록일</th>
+              <th>액션</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${students.map(student => `
+              <tr>
+                <td>${student.number}</td>
+                <td>${escapeHtml(student.name)}</td>
+                <td>${renderStatusBadge(student.status)}</td>
+                <td>${student.lastAccessRelative || '없음'}</td>
+                <td class="hide-mobile">${formatDateShort(student.createdAt)}</td>
+                <td>
+                  <div class="flex gap-1">
+                    <button class="btn btn-sm btn-ghost" title="QR 다운로드"
+                            onclick="downloadStudentQR('${escapeHtml(student.name)}', ${student.number}, '${student.token}')">
+                      📱
+                    </button>
+                    <button class="btn btn-sm btn-ghost" title="PIN 재설정"
+                            onclick="showResetPinModal('${escapeHtml(student.name)}', ${student.number})">
+                      🔑
+                    </button>
+                    <button class="btn btn-sm btn-ghost" title="더보기"
+                            onclick="showStudentMenu('${escapeHtml(student.name)}', ${student.number}, '${student.status}')">
+                      ⋮
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  /**
+   * PIN 입력 컴포넌트
+   */
+  function renderPinInput(id, label = 'PIN 입력') {
+    return `
+      <div class="form-group">
+        <label class="form-label">${escapeHtml(label)} (숫자 6자리)</label>
+        <div id="${id}" class="pin-input-container">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+          <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric">
+        </div>
+      </div>
+    `;
+  }
+</script>

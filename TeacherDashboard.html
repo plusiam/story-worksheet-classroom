@@ -1,0 +1,665 @@
+<script>
+  /* ============================================
+     교사 대시보드
+     ============================================ */
+
+  let dashboardData = {};
+
+  async function renderTeacherDashboard(container) {
+    try {
+      // 데이터 로드
+      const [systemInfo, students] = await Promise.all([
+        callApi('getSystemInfo'),
+        callApi('getStudents')
+      ]);
+
+      dashboardData = {
+        systemInfo: systemInfo,
+        students: students.data || []
+      };
+    } catch (error) {
+      console.error('대시보드 데이터 로드 실패:', error);
+      dashboardData = { systemInfo: {}, students: [] };
+    }
+
+    const { systemInfo, students } = dashboardData;
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderTeacherHeader('', 'dashboard')}
+
+        <!-- 통계 카드 -->
+        <div class="flex gap-2 mb-3" style="flex-wrap: wrap;">
+          ${renderStatCard('👨‍🎓', '전체 학생', systemInfo.totalStudents || 0, 'primary')}
+          ${renderStatCard('✅', '활성 학생', systemInfo.activeStudents || 0, 'secondary')}
+          ${renderStatCard('⏳', 'PIN 대기', systemInfo.pendingStudents || 0, 'warning')}
+        </div>
+
+        <!-- 빠른 액션 -->
+        <div class="card mb-3">
+          <h3 style="margin-bottom: 16px;">⚡ 빠른 실행</h3>
+          <div class="flex gap-2" style="flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="showAddStudentModal()">
+              👨‍🎓 학생 등록
+            </button>
+            <button class="btn btn-outline" onclick="showImportStudentsModal()">
+              📋 명단 일괄 등록
+            </button>
+            <button class="btn btn-outline" onclick="navigateTo('teacher-qr')">
+              📱 QR 코드
+            </button>
+            <button class="btn btn-outline" onclick="copyClassUrl()">
+              🔗 URL 복사
+            </button>
+          </div>
+        </div>
+
+        <!-- 학생 목록 -->
+        <div class="card">
+          <div class="flex justify-between items-center mb-2">
+            <h3>👨‍🎓 학생 목록</h3>
+            <button class="btn btn-sm btn-ghost" onclick="refreshStudentList()">
+              🔄 새로고침
+            </button>
+          </div>
+
+          <div id="student-list-container">
+            ${renderStudentTable(students)}
+          </div>
+        </div>
+
+        <!-- 접속 URL 정보 -->
+        <div class="card mt-3" style="background: var(--primary-light);">
+          <h4 style="margin-bottom: 8px;">🔗 학생 접속 URL</h4>
+          <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+            <code style="background: white; padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; word-break: break-all; flex: 1;">
+              ${escapeHtml(systemInfo.webAppUrl || '로딩 중...')}
+            </code>
+            <button class="btn btn-sm btn-primary" onclick="copyClassUrl()">복사</button>
+          </div>
+          <p style="color: var(--text-light); font-size: 0.85rem; margin-top: 8px;">
+            이 URL을 학생들에게 공유하세요. QR 코드도 제공됩니다.
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 학생 목록 새로고침
+   */
+  async function refreshStudentList() {
+    try {
+      const result = await callApi('getStudents');
+
+      if (result.success) {
+        dashboardData.students = result.data || [];
+        const container = document.getElementById('student-list-container');
+        container.innerHTML = renderStudentTable(dashboardData.students);
+        showToast('새로고침 완료!', 'success');
+      }
+    } catch (error) {
+      showToast('새로고침 실패', 'error');
+    }
+  }
+
+  /**
+   * 반 URL 복사
+   */
+  function copyClassUrl() {
+    const url = dashboardData.systemInfo?.webAppUrl;
+    if (url) {
+      copyToClipboard(url);
+    } else {
+      showToast('URL을 불러오지 못했습니다.', 'error');
+    }
+  }
+
+  /**
+   * 학생 등록 모달
+   */
+  function showAddStudentModal() {
+    showModal({
+      title: '👨‍🎓 학생 등록',
+      content: `
+        <form id="add-student-form" onsubmit="submitAddStudent(event)">
+          <div class="form-group">
+            <label class="form-label" for="new-student-name">이름 *</label>
+            <input type="text" id="new-student-name" class="form-input" placeholder="예: 홍길동" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="new-student-number">번호 *</label>
+            <input type="number" id="new-student-number" class="form-input" placeholder="예: 15" min="1" max="100" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="new-student-pin">PIN (선택)</label>
+            <input type="text" id="new-student-pin" class="form-input" placeholder="비워두면 학생이 직접 설정" maxlength="6" pattern="[0-9]{6}">
+            <p class="form-helper">6자리 숫자. 비워두면 학생이 첫 접속 시 설정합니다.</p>
+          </div>
+
+          <div id="add-student-error" class="alert alert-error" style="display: none;"></div>
+        </form>
+      `,
+      buttons: [
+        { text: '취소', class: 'btn-outline' },
+        { text: '등록', class: 'btn-primary', onclick: 'submitAddStudent(event)' }
+      ]
+    });
+  }
+
+  /**
+   * 학생 등록 제출
+   */
+  async function submitAddStudent(event) {
+    if (event) event.preventDefault();
+
+    const name = document.getElementById('new-student-name').value.trim();
+    const number = parseInt(document.getElementById('new-student-number').value, 10);
+    const pin = document.getElementById('new-student-pin').value.trim() || null;
+    const errorDiv = document.getElementById('add-student-error');
+
+    try {
+      const result = await callApi('registerStudent', { name, number, pin });
+
+      if (result.success) {
+        closeModal();
+        showToast(`${name} 학생이 등록되었습니다!`, 'success');
+        refreshStudentList();
+      } else {
+        errorDiv.textContent = result.error;
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      errorDiv.textContent = '등록 중 오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    }
+  }
+
+  /**
+   * 학생 일괄 등록 모달
+   */
+  function showImportStudentsModal() {
+    showModal({
+      title: '📋 명단 일괄 등록',
+      content: `
+        <div class="alert alert-info mb-2">
+          <span>💡</span>
+          <div>CSV 형식으로 학생 명단을 붙여넣으세요.<br>
+          형식: 이름,번호 (한 줄에 한 명)</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">학생 명단</label>
+          <textarea id="import-csv" class="form-input" rows="8"
+                    placeholder="예시:
+홍길동,1
+김서연,2
+박지훈,3"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">PIN 설정 방식</label>
+          <select id="import-pin-mode" class="form-input">
+            <option value="student">학생이 직접 설정 (권장)</option>
+            <option value="default">번호를 6자리로 (예: 1 → 000001)</option>
+          </select>
+        </div>
+
+        <div id="import-error" class="alert alert-error" style="display: none;"></div>
+      `,
+      buttons: [
+        { text: '취소', class: 'btn-outline' },
+        { text: '등록', class: 'btn-primary', onclick: 'submitImportStudents()' }
+      ]
+    });
+  }
+
+  /**
+   * 학생 일괄 등록 제출
+   */
+  async function submitImportStudents() {
+    const csvData = document.getElementById('import-csv').value.trim();
+    const pinMode = document.getElementById('import-pin-mode').value;
+    const errorDiv = document.getElementById('import-error');
+
+    if (!csvData) {
+      errorDiv.textContent = '학생 명단을 입력해주세요.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    try {
+      const result = await callApi('importStudents', { csvData, pinMode });
+
+      if (result.success) {
+        closeModal();
+
+        let message = `${result.added}명 등록 완료!`;
+        if (result.skipped > 0) {
+          message += ` (${result.skipped}명 건너뜀)`;
+        }
+
+        showToast(message, result.skipped > 0 ? 'warning' : 'success');
+
+        if (result.errors && result.errors.length > 0) {
+          console.log('등록 오류:', result.errors);
+        }
+
+        refreshStudentList();
+      } else {
+        errorDiv.textContent = result.error;
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      errorDiv.textContent = '등록 중 오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    }
+  }
+
+  /**
+   * PIN 재설정 모달
+   */
+  function showResetPinModal(name, number) {
+    showModal({
+      title: '🔑 PIN 재설정',
+      content: `
+        <p style="margin-bottom: 16px;">
+          <strong>${escapeHtml(name)} (${number}번)</strong> 학생의 PIN을 재설정합니다.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">새 PIN (숫자 6자리)</label>
+          <input type="text" id="reset-pin-value" class="form-input" maxlength="6" pattern="[0-9]{6}" placeholder="000000">
+        </div>
+
+        <div id="reset-pin-error" class="alert alert-error" style="display: none;"></div>
+      `,
+      buttons: [
+        { text: '취소', class: 'btn-outline' },
+        { text: '재설정', class: 'btn-primary', onclick: `submitResetPin('${escapeHtml(name)}', ${number})` }
+      ]
+    });
+  }
+
+  /**
+   * PIN 재설정 제출
+   */
+  async function submitResetPin(name, number) {
+    const newPin = document.getElementById('reset-pin-value').value.trim();
+    const errorDiv = document.getElementById('reset-pin-error');
+
+    if (!/^\d{6}$/.test(newPin)) {
+      errorDiv.textContent = 'PIN은 숫자 6자리여야 합니다.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    try {
+      const result = await callApi('resetPin', { name, number, newPin });
+
+      if (result.success) {
+        closeModal();
+        showToast('PIN이 재설정되었습니다.', 'success');
+        refreshStudentList();
+      } else {
+        errorDiv.textContent = result.error;
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      errorDiv.textContent = '재설정 중 오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    }
+  }
+
+  /**
+   * 학생 메뉴 모달
+   */
+  function showStudentMenu(name, number, status) {
+    const isActive = status === 'active';
+
+    showModal({
+      title: `${escapeHtml(name)} (${number}번)`,
+      content: `
+        <div class="flex flex-col gap-2">
+          <button class="btn btn-outline btn-block" onclick="closeModal(); showResetPinModal('${escapeHtml(name)}', ${number});">
+            🔑 PIN 재설정
+          </button>
+          <button class="btn btn-outline btn-block" onclick="regenerateStudentToken('${escapeHtml(name)}', ${number})">
+            🔄 QR 토큰 재발급
+          </button>
+          <button class="btn btn-outline btn-block" onclick="toggleStudentStatus('${escapeHtml(name)}', ${number}, '${status}')">
+            ${isActive ? '🚫 비활성화' : '✅ 활성화'}
+          </button>
+          <hr style="margin: 8px 0; border: none; border-top: 1px solid var(--border);">
+          <button class="btn btn-danger btn-block" onclick="confirmDeleteStudent('${escapeHtml(name)}', ${number})">
+            🗑️ 학생 삭제
+          </button>
+        </div>
+      `
+    });
+  }
+
+  /**
+   * QR 토큰 재발급
+   */
+  async function regenerateStudentToken(name, number) {
+    closeModal();
+
+    showConfirm(
+      '새 QR 토큰을 발급하면 기존 QR 코드가 무효화됩니다. 계속하시겠습니까?',
+      async () => {
+        try {
+          const result = await callApi('regenerateToken', { name, number });
+
+          if (result.success) {
+            showToast('새 QR 토큰이 발급되었습니다.', 'success');
+            refreshStudentList();
+          } else {
+            showToast(result.error || '토큰 재발급 실패', 'error');
+          }
+        } catch (error) {
+          showToast('토큰 재발급 중 오류가 발생했습니다.', 'error');
+        }
+      }
+    );
+  }
+
+  /**
+   * 학생 상태 토글
+   */
+  async function toggleStudentStatus(name, number, currentStatus) {
+    closeModal();
+
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    const action = newStatus === 'active' ? '활성화' : '비활성화';
+
+    try {
+      const result = await callApi('updateStudentStatus', { name, number, status: newStatus });
+
+      if (result.success) {
+        showToast(`학생이 ${action}되었습니다.`, 'success');
+        refreshStudentList();
+      } else {
+        showToast(result.error || `${action} 실패`, 'error');
+      }
+    } catch (error) {
+      showToast(`${action} 중 오류가 발생했습니다.`, 'error');
+    }
+  }
+
+  /**
+   * 학생 삭제 확인
+   */
+  function confirmDeleteStudent(name, number) {
+    closeModal();
+
+    showConfirm(
+      `정말 ${name} 학생을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
+      async () => {
+        try {
+          const result = await callApi('deleteStudent', { name, number });
+
+          if (result.success) {
+            showToast('학생이 삭제되었습니다.', 'success');
+            refreshStudentList();
+          } else {
+            showToast(result.error || '삭제 실패', 'error');
+          }
+        } catch (error) {
+          showToast('삭제 중 오류가 발생했습니다.', 'error');
+        }
+      }
+    );
+  }
+
+  /**
+   * 학생별 QR 다운로드
+   */
+  async function downloadStudentQR(name, number, token) {
+    const webAppUrl = dashboardData.systemInfo?.webAppUrl;
+    if (!webAppUrl || !token) {
+      showToast('QR 정보를 불러올 수 없습니다.', 'error');
+      return;
+    }
+
+    const qrUrl = `${webAppUrl}?token=${token}`;
+
+    try {
+      const dataUrl = await QRCode.toDataURL(qrUrl, {
+        width: 300,
+        margin: 2,
+        color: { dark: '#2C3E50', light: '#FFFFFF' }
+      });
+
+      // 다운로드
+      const link = document.createElement('a');
+      link.download = `QR_${name}_${number}번.png`;
+      link.href = dataUrl;
+      link.click();
+
+      showToast('QR 코드가 다운로드되었습니다.', 'success');
+    } catch (error) {
+      showToast('QR 생성에 실패했습니다.', 'error');
+    }
+  }
+
+  /* ============================================
+     교사 학생 관리 (별도 페이지)
+     ============================================ */
+
+  async function renderTeacherStudents(container) {
+    // 대시보드와 동일한 데이터 사용
+    await renderTeacherDashboard(container);
+  }
+
+  /* ============================================
+     교사 QR 관리
+     ============================================ */
+
+  async function renderTeacherQR(container) {
+    const systemInfo = dashboardData.systemInfo || await callApi('getSystemInfo');
+    const students = dashboardData.students || (await callApi('getStudents')).data || [];
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderTeacherHeader('QR 코드 관리', 'qr')}
+
+        <!-- 반 전체 QR -->
+        <div class="card mb-3">
+          <h3 style="margin-bottom: 16px;">📱 반 전체 QR 코드</h3>
+          <p style="color: var(--text-light); margin-bottom: 16px;">
+            이 QR을 교실에 붙여두면 학생들이 스캔하여 접속할 수 있어요.
+          </p>
+
+          <div class="flex gap-3" style="flex-wrap: wrap; align-items: flex-start;">
+            <div id="class-qr" style="background: white; padding: 16px; border-radius: 12px; box-shadow: var(--shadow-sm);">
+              <!-- QR 코드가 여기에 렌더링됨 -->
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+              <p style="margin-bottom: 8px;"><strong>접속 URL:</strong></p>
+              <code style="display: block; background: var(--bg); padding: 12px; border-radius: 8px; word-break: break-all; font-size: 0.85rem;">
+                ${escapeHtml(systemInfo.webAppUrl || '')}
+              </code>
+              <div class="flex gap-2 mt-2">
+                <button class="btn btn-sm btn-primary" onclick="downloadClassQR()">
+                  QR 다운로드
+                </button>
+                <button class="btn btn-sm btn-outline" onclick="copyClassUrl()">
+                  URL 복사
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 학생별 QR -->
+        <div class="card">
+          <div class="flex justify-between items-center mb-2">
+            <h3>👨‍🎓 학생별 QR 코드</h3>
+            <button class="btn btn-sm btn-primary" onclick="downloadAllStudentQRs()">
+              📥 전체 다운로드 (PDF)
+            </button>
+          </div>
+          <p style="color: var(--text-light); margin-bottom: 16px;">
+            학생별 QR 코드를 출력하여 배포하면 PIN 없이 바로 접속할 수 있어요.
+          </p>
+
+          ${students.length === 0 ? renderEmptyState('👨‍🎓', '등록된 학생이 없습니다', '학생을 먼저 등록해주세요.') : `
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px;">
+              ${students.filter(s => s.status === 'active').map(student => `
+                <div class="card" style="padding: 12px; text-align: center;">
+                  <div id="student-qr-${student.number}" style="margin-bottom: 8px;"></div>
+                  <p style="font-weight: 600;">${escapeHtml(student.name)}</p>
+                  <p style="color: var(--text-light); font-size: 0.85rem;">${student.number}번</p>
+                  <button class="btn btn-sm btn-ghost mt-1" onclick="downloadStudentQR('${escapeHtml(student.name)}', ${student.number}, '${student.token}')">
+                    다운로드
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // QR 코드 생성
+    if (systemInfo.webAppUrl) {
+      generateQRCode(systemInfo.webAppUrl, 'class-qr', 200);
+
+      // 학생별 QR 생성
+      students.filter(s => s.status === 'active').forEach(student => {
+        const qrUrl = `${systemInfo.webAppUrl}?token=${student.token}`;
+        generateQRCode(qrUrl, `student-qr-${student.number}`, 120);
+      });
+    }
+  }
+
+  /**
+   * 반 QR 다운로드
+   */
+  async function downloadClassQR() {
+    const webAppUrl = dashboardData.systemInfo?.webAppUrl;
+    if (!webAppUrl) {
+      showToast('URL을 불러올 수 없습니다.', 'error');
+      return;
+    }
+
+    try {
+      const dataUrl = await QRCode.toDataURL(webAppUrl, {
+        width: 400,
+        margin: 2,
+        color: { dark: '#2C3E50', light: '#FFFFFF' }
+      });
+
+      const link = document.createElement('a');
+      link.download = 'QR_반전체.png';
+      link.href = dataUrl;
+      link.click();
+
+      showToast('QR 코드가 다운로드되었습니다.', 'success');
+    } catch (error) {
+      showToast('QR 생성에 실패했습니다.', 'error');
+    }
+  }
+
+  /**
+   * 전체 학생 QR 다운로드 (간단 버전 - 개별 다운로드)
+   */
+  async function downloadAllStudentQRs() {
+    const students = dashboardData.students || [];
+    const activeStudents = students.filter(s => s.status === 'active');
+
+    if (activeStudents.length === 0) {
+      showToast('다운로드할 학생이 없습니다.', 'warning');
+      return;
+    }
+
+    showToast(`${activeStudents.length}개의 QR 코드를 다운로드합니다...`, 'info');
+
+    for (const student of activeStudents) {
+      await downloadStudentQR(student.name, student.number, student.token);
+      await new Promise(resolve => setTimeout(resolve, 500)); // 딜레이
+    }
+  }
+
+  /* ============================================
+     교사 설정
+     ============================================ */
+
+  async function renderTeacherSettings(container) {
+    const settings = AppState.settings || await callApi('getSettings');
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderTeacherHeader('설정', 'settings')}
+
+        <div class="card">
+          <h3 style="margin-bottom: 20px;">⚙️ 기본 설정</h3>
+
+          <form id="settings-form" onsubmit="saveSettingsForm(event)">
+            <div class="form-group">
+              <label class="form-label">선생님 성함</label>
+              <input type="text" id="setting-teacherName" class="form-input" value="${escapeHtml(settings.teacherName || '')}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">학교 이름</label>
+              <input type="text" id="setting-schoolName" class="form-input" value="${escapeHtml(settings.schoolName || '')}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">학급</label>
+              <input type="text" id="setting-className" class="form-input" value="${escapeHtml(settings.className || '')}">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">환영 메시지</label>
+              <textarea id="setting-welcomeMessage" class="form-input" rows="2">${escapeHtml(settings.welcomeMessage || '')}</textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+              저장하기
+            </button>
+          </form>
+        </div>
+
+        <div class="card mt-3">
+          <h3 style="margin-bottom: 16px;">📊 시스템 정보</h3>
+          <table class="table">
+            <tr><td>버전</td><td>${escapeHtml(settings.version || VERSION)}</td></tr>
+            <tr><td>생성일</td><td>${formatDate(settings.createdAt)}</td></tr>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 설정 저장
+   */
+  async function saveSettingsForm(event) {
+    event.preventDefault();
+
+    const newSettings = {
+      teacherName: document.getElementById('setting-teacherName').value.trim(),
+      schoolName: document.getElementById('setting-schoolName').value.trim(),
+      className: document.getElementById('setting-className').value.trim(),
+      welcomeMessage: document.getElementById('setting-welcomeMessage').value.trim()
+    };
+
+    try {
+      const result = await callApi('saveSettings', { settings: newSettings });
+
+      if (result.success) {
+        AppState.settings = { ...AppState.settings, ...newSettings };
+        showToast('설정이 저장되었습니다!', 'success');
+      } else {
+        showToast(result.error || '저장 실패', 'error');
+      }
+    } catch (error) {
+      showToast('설정 저장 중 오류가 발생했습니다.', 'error');
+    }
+  }
+</script>
