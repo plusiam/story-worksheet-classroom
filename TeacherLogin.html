@@ -1,6 +1,6 @@
 <script>
   /* ============================================
-     교사 로그인 화면
+     교사 로그인 화면 (다중 교사 지원)
      ============================================ */
 
   /**
@@ -10,6 +10,7 @@
     const settings = AppState.settings || {};
     const isFirstSetup = data.isFirstSetup;
     const hasPin = data.hasPin;
+    const mode = data.mode || 'login'; // 'login', 'register', 'pending'
 
     container.innerHTML = `
       <div class="container-narrow fade-in" role="main" aria-label="교사 로그인 페이지">
@@ -26,7 +27,7 @@
         </header>
 
         <div class="card slide-up" role="region" aria-label="교사 로그인 영역">
-          ${isFirstSetup ? renderFirstSetupPrompt() : renderLoginForm(hasPin, settings)}
+          ${renderTeacherAuthContent(mode, isFirstSetup, hasPin, settings)}
         </div>
 
         <nav class="text-center mt-3" aria-label="페이지 내비게이션">
@@ -39,204 +40,210 @@
       </div>
     `;
 
-    // PIN 입력 설정
-    if (!isFirstSetup && hasPin) {
-      setTimeout(() => setupTeacherPinInput(), 100);
-    }
+    // 입력 설정
+    setTimeout(() => {
+      if (mode === 'login') {
+        setupTeacherEmailLogin();
+      } else if (mode === 'register') {
+        setupTeacherRegister();
+      }
+    }, 100);
   }
 
   /**
-   * 첫 설정 안내
+   * 교사 인증 콘텐츠 렌더링
    */
-  function renderFirstSetupPrompt() {
-    return `
-      <div class="text-center" role="region" aria-labelledby="welcome-title">
-        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">👋</div>
-        <h2 id="welcome-title">처음 오셨군요!</h2>
-        <p style="color: var(--text-light); margin-bottom: 24px;" id="welcome-description">
-          스토리 학습지를 처음 사용하시네요.<br>
-          간단한 설정을 완료해주세요.
-        </p>
+  function renderTeacherAuthContent(mode, isFirstSetup, hasPin, settings) {
+    if (mode === 'pending') {
+      return renderPendingApproval();
+    }
 
-        <div class="card" style="background: var(--warning-light); text-align: left; margin-bottom: 24px;"
-             role="alert" aria-label="보안 안내">
-          <h4 style="color: var(--warning-dark); margin-bottom: 8px;">🔐 보안 안내</h4>
-          <p style="font-size: 0.9rem; color: var(--text);">
-            설정 과정에서 <strong>교사 PIN</strong>을 만들게 됩니다.<br>
-            이 PIN은 선생님만 알고 계셔야 합니다.
-          </p>
-        </div>
+    if (mode === 'register') {
+      return renderRegisterForm();
+    }
 
-        <button class="btn btn-primary btn-lg btn-block" onclick="navigateTo('teacher-setup')"
-                aria-describedby="welcome-description">
-          설정 시작하기 →
-        </button>
-      </div>
-    `;
+    // 기본: 로그인 폼
+    return renderEmailLoginForm(settings);
   }
 
   /**
-   * 교사 로그인 폼
+   * 이메일/비밀번호 로그인 폼
    */
-  function renderLoginForm(hasPin, settings) {
-    const teacherName = settings.teacherName || '';
-
-    if (!hasPin) {
-      // PIN이 아직 설정되지 않음 (마이그레이션 필요)
-      return `
-        <div class="text-center" role="form" aria-labelledby="pin-setup-title">
-          <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">🔐</div>
-          <h2 id="pin-setup-title">교사 PIN 설정 필요</h2>
-          <p style="color: var(--text-light); margin-bottom: 24px;" id="pin-setup-description">
-            보안 강화를 위해 교사 PIN을 설정해주세요.<br>
-            다른 사람이 교사 모드에 접근하는 것을 방지합니다.
-          </p>
-
-          <div class="form-group">
-            <label class="form-label" for="new-pin-1" id="new-pin-label">새 PIN (4~6자리 숫자)</label>
-            <div id="new-teacher-pin" class="pin-input-container pin-4" role="group" aria-labelledby="new-pin-label">
-              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                     id="new-pin-1" aria-label="PIN 첫 번째 자리">
-              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                     aria-label="PIN 두 번째 자리">
-              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                     aria-label="PIN 세 번째 자리">
-              <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                     aria-label="PIN 네 번째 자리">
-            </div>
-          </div>
-
-          <button class="btn btn-primary btn-lg btn-block mt-3" onclick="submitNewTeacherPin()"
-                  aria-describedby="pin-setup-description">
-            PIN 설정하기
-          </button>
-        </div>
-      `;
-    }
-
-    // PIN이 있으면 로그인 폼
+  function renderEmailLoginForm(settings) {
     return `
       <div class="text-center" role="form" aria-labelledby="login-title">
         <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">👩‍🏫</div>
-        <h2 id="login-title">${teacherName ? escapeHtml(teacherName) + ' 선생님' : '선생님'}</h2>
+        <h2 id="login-title">교사 로그인</h2>
         <p style="color: var(--text-light); margin-bottom: 24px;" id="login-description">
-          교사 PIN을 입력해주세요
+          이메일과 비밀번호를 입력해주세요
         </p>
 
-        <div class="form-group">
-          <label class="form-label" for="teacher-pin-1" id="teacher-pin-label">교사 PIN</label>
-          <div id="teacher-pin" class="pin-input-container pin-4" role="group" aria-labelledby="teacher-pin-label">
-            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                   id="teacher-pin-1" aria-label="PIN 첫 번째 자리">
-            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                   aria-label="PIN 두 번째 자리">
-            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                   aria-label="PIN 세 번째 자리">
-            <input type="tel" class="pin-input" maxlength="1" pattern="[0-9]" inputmode="numeric"
-                   aria-label="PIN 네 번째 자리">
+        <form id="teacher-login-form" onsubmit="submitTeacherEmailLogin(event)">
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="teacher-email">이메일</label>
+            <input type="email" id="teacher-email" class="form-input"
+                   placeholder="example@school.edu" required
+                   style="font-size: 1rem; padding: 12px;">
           </div>
+
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="teacher-password">비밀번호</label>
+            <input type="password" id="teacher-password" class="form-input"
+                   placeholder="비밀번호 입력" required minlength="6"
+                   style="font-size: 1rem; padding: 12px;">
+          </div>
+
+          <div id="login-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
+
+          <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">
+            로그인
+          </button>
+        </form>
+
+        <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
+          <p style="color: var(--text-light); font-size: 0.9rem; margin-bottom: 12px;">
+            계정이 없으신가요?
+          </p>
+          <button class="btn btn-outline btn-block" onclick="showTeacherRegister()">
+            교사 계정 신청하기
+          </button>
         </div>
 
-        <div id="login-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
-
-        <button class="btn btn-primary btn-lg btn-block mt-3" onclick="submitTeacherLogin()"
-                aria-describedby="login-description">
-          로그인
-        </button>
-
-        <p class="mt-3" style="color: var(--text-light); font-size: 0.85rem;" aria-describedby="pin-reset-help">
-          PIN을 잊으셨나요? 스프레드시트 SETTINGS 시트에서<br>
-          <code>teacherPinHash</code> 행을 삭제하면 재설정됩니다.
+        <p class="mt-3" style="color: var(--text-light); font-size: 0.8rem;">
+          💡 첫 교사는 자동으로 관리자가 됩니다.<br>
+          이후 교사는 관리자 승인이 필요합니다.
         </p>
       </div>
     `;
   }
 
   /**
-   * 교사 PIN 입력 설정
+   * 교사 회원가입 폼
    */
-  function setupTeacherPinInput() {
-    const container = document.getElementById('teacher-pin') || document.getElementById('new-teacher-pin');
-    if (!container) return;
+  function renderRegisterForm() {
+    return `
+      <div class="text-center" role="form" aria-labelledby="register-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">✨</div>
+        <h2 id="register-title">교사 계정 신청</h2>
+        <p style="color: var(--text-light); margin-bottom: 24px;" id="register-description">
+          계정 정보를 입력해주세요
+        </p>
 
-    const inputs = container.querySelectorAll('.pin-input');
+        <form id="teacher-register-form" onsubmit="submitTeacherRegister(event)">
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="register-email">이메일 *</label>
+            <input type="email" id="register-email" class="form-input"
+                   placeholder="example@school.edu" required
+                   style="font-size: 1rem; padding: 12px;">
+          </div>
 
-    inputs.forEach((input, index) => {
-      // 숫자만 입력
-      input.addEventListener('input', (e) => {
-        e.target.value = e.target.value.replace(/[^0-9]/g, '');
-        if (e.target.value && index < inputs.length - 1) {
-          inputs[index + 1].focus();
-        }
-      });
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="register-name">이름 *</label>
+            <input type="text" id="register-name" class="form-input"
+                   placeholder="홍길동" required
+                   style="font-size: 1rem; padding: 12px;">
+          </div>
 
-      // 백스페이스로 이전 칸 이동
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' && !e.target.value && index > 0) {
-          inputs[index - 1].focus();
-        }
-        // 엔터로 제출
-        if (e.key === 'Enter') {
-          const btn = document.querySelector('button[onclick*="submitTeacher"]');
-          if (btn) btn.click();
-        }
-      });
-    });
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="register-password">비밀번호 *</label>
+            <input type="password" id="register-password" class="form-input"
+                   placeholder="6자리 이상" required minlength="6"
+                   style="font-size: 1rem; padding: 12px;">
+            <small style="color: var(--text-light);">영문, 숫자 포함 6자리 이상</small>
+          </div>
 
-    // 첫 번째 입력에 포커스
-    inputs[0]?.focus();
+          <div class="form-group" style="text-align: left;">
+            <label class="form-label" for="register-password-confirm">비밀번호 확인 *</label>
+            <input type="password" id="register-password-confirm" class="form-input"
+                   placeholder="비밀번호 다시 입력" required minlength="6"
+                   style="font-size: 1rem; padding: 12px;">
+          </div>
+
+          <div id="register-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
+
+          <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">
+            계정 신청하기
+          </button>
+        </form>
+
+        <div style="margin-top: 20px;">
+          <button class="btn btn-link" onclick="showTeacherLogin()"
+                  style="color: var(--text-light);">
+            ← 로그인으로 돌아가기
+          </button>
+        </div>
+
+        <div class="card" style="background: var(--info-light); margin-top: 16px; text-align: left;">
+          <p style="font-size: 0.85rem; color: var(--info-dark); margin: 0;">
+            ℹ️ <strong>안내</strong><br>
+            • 첫 번째 가입자는 자동으로 관리자가 됩니다.<br>
+            • 이후 가입자는 관리자의 승인 후 사용 가능합니다.
+          </p>
+        </div>
+      </div>
+    `;
   }
 
   /**
-   * 교사 PIN 값 가져오기
+   * 승인 대기 화면
    */
-  function getTeacherPinValue(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return '';
+  function renderPendingApproval() {
+    return `
+      <div class="text-center" role="status" aria-labelledby="pending-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">⏳</div>
+        <h2 id="pending-title">승인 대기 중</h2>
+        <p style="color: var(--text-light); margin-bottom: 24px;">
+          계정 승인을 기다리고 있습니다.<br>
+          관리자가 승인하면 로그인할 수 있습니다.
+        </p>
 
-    const inputs = container.querySelectorAll('.pin-input');
-    return Array.from(inputs).map(input => input.value).join('');
+        <div class="card" style="background: var(--warning-light); text-align: left;">
+          <p style="font-size: 0.9rem; color: var(--warning-dark); margin: 0;">
+            🔔 <strong>승인 절차</strong><br>
+            관리자에게 승인 요청이 전달되었습니다.<br>
+            승인 완료 시 등록하신 이메일로 로그인하세요.
+          </p>
+        </div>
+
+        <button class="btn btn-outline btn-block mt-3" onclick="showTeacherLogin()">
+          로그인 화면으로
+        </button>
+      </div>
+    `;
   }
 
   /**
-   * 새 교사 PIN 설정 제출
+   * 이메일 로그인 폼 설정
    */
-  async function submitNewTeacherPin() {
-    const pin = getTeacherPinValue('new-teacher-pin');
-
-    if (pin.length < 4) {
-      showToast('PIN은 4자리 이상 입력해주세요.', 'error');
-      return;
+  function setupTeacherEmailLogin() {
+    const emailInput = document.getElementById('teacher-email');
+    if (emailInput) {
+      emailInput.focus();
     }
+  }
 
-    showLoading('PIN 설정 중...');
-
-    try {
-      const result = await callApi('setTeacherPin', { pin: pin });
-
-      if (result.success) {
-        showToast('교사 PIN이 설정되었습니다!', 'success');
-        // 다시 로그인 화면으로
-        checkAndShowTeacherLogin();
-      } else {
-        showToast(result.error || 'PIN 설정에 실패했습니다.', 'error');
-      }
-    } catch (error) {
-      showToast('오류가 발생했습니다.', 'error');
-    } finally {
-      hideLoading();
+  /**
+   * 회원가입 폼 설정
+   */
+  function setupTeacherRegister() {
+    const emailInput = document.getElementById('register-email');
+    if (emailInput) {
+      emailInput.focus();
     }
   }
 
   /**
-   * 교사 로그인 제출
+   * 이메일 로그인 제출
    */
-  async function submitTeacherLogin() {
-    const pin = getTeacherPinValue('teacher-pin');
+  async function submitTeacherEmailLogin(event) {
+    event.preventDefault();
+
+    const email = document.getElementById('teacher-email').value.trim();
+    const password = document.getElementById('teacher-password').value;
     const errorDiv = document.getElementById('login-error');
 
-    if (pin.length < 4) {
-      errorDiv.textContent = 'PIN을 입력해주세요.';
+    if (!email || !password) {
+      errorDiv.textContent = '이메일과 비밀번호를 입력해주세요.';
       errorDiv.style.display = 'block';
       return;
     }
@@ -245,23 +252,59 @@
     showLoading('로그인 중...');
 
     try {
-      const result = await callApi('loginTeacher', { pin: pin });
+      const result = await callApi('loginTeacherWithEmail', {
+        email: email,
+        password: password
+      });
 
       if (result.success) {
-        // 교사 토큰 저장
-        AppState.teacherToken = result.teacherToken;
-        AppState.isTeacher = true;
-        sessionStorage.setItem('teacherToken', result.teacherToken);
+        // 승인 대기 중인 경우
+        if (result.status === 'pending') {
+          hideLoading();
+          navigateTo('teacher-login', { mode: 'pending' });
+          return;
+        }
 
-        showToast(`${result.teacherName || '선생님'}, 환영합니다!`, 'success');
+        // 거부된 경우
+        if (result.status === 'rejected') {
+          errorDiv.innerHTML = `
+            <strong>계정이 거부되었습니다.</strong><br>
+            ${result.rejectionReason || '관리자에게 문의하세요.'}
+          `;
+          errorDiv.style.display = 'block';
+          hideLoading();
+          return;
+        }
+
+        // 정지된 경우
+        if (result.status === 'suspended') {
+          errorDiv.textContent = '계정이 정지되었습니다. 관리자에게 문의하세요.';
+          errorDiv.style.display = 'block';
+          hideLoading();
+          return;
+        }
+
+        // 정상 로그인
+        AppState.teacherToken = result.teacherToken;
+        AppState.teacherEmail = result.email;
+        AppState.teacherName = result.name;
+        AppState.teacherRole = result.role;
+        AppState.isTeacher = true;
+
+        sessionStorage.setItem('teacherToken', result.teacherToken);
+        sessionStorage.setItem('teacherEmail', result.email);
+        sessionStorage.setItem('teacherRole', result.role);
+
+        showToast(`${result.name || '선생님'}, 환영합니다!`, 'success');
+
+        // 관리자면 대시보드로, 아니면 학생 관리로
         navigateTo('teacher-dashboard');
       } else {
         errorDiv.textContent = result.error || '로그인에 실패했습니다.';
         errorDiv.style.display = 'block';
-        // PIN 입력 초기화
-        clearTeacherPinInput('teacher-pin');
       }
     } catch (error) {
+      console.error('로그인 오류:', error);
       errorDiv.textContent = '오류가 발생했습니다.';
       errorDiv.style.display = 'block';
     } finally {
@@ -270,15 +313,108 @@
   }
 
   /**
-   * PIN 입력 초기화
+   * 교사 회원가입 제출
    */
-  function clearTeacherPinInput(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+  async function submitTeacherRegister(event) {
+    event.preventDefault();
 
-    const inputs = container.querySelectorAll('.pin-input');
-    inputs.forEach(input => input.value = '');
-    inputs[0]?.focus();
+    const email = document.getElementById('register-email').value.trim();
+    const name = document.getElementById('register-name').value.trim();
+    const password = document.getElementById('register-password').value;
+    const passwordConfirm = document.getElementById('register-password-confirm').value;
+    const errorDiv = document.getElementById('register-error');
+
+    // 유효성 검사
+    if (!email || !name || !password) {
+      errorDiv.textContent = '모든 필수 항목을 입력해주세요.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    if (password.length < 6) {
+      errorDiv.textContent = '비밀번호는 6자리 이상이어야 합니다.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    if (password !== passwordConfirm) {
+      errorDiv.textContent = '비밀번호가 일치하지 않습니다.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    // 이메일 형식 검사
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      errorDiv.textContent = '올바른 이메일 형식이 아닙니다.';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    errorDiv.style.display = 'none';
+    showLoading('계정 신청 중...');
+
+    try {
+      const result = await callApi('registerTeacher', {
+        email: email,
+        name: name,
+        password: password
+      });
+
+      if (result.success) {
+        if (result.isFirstTeacher) {
+          // 첫 교사 - 바로 관리자로 로그인
+          showToast('🎉 관리자 계정이 생성되었습니다!', 'success');
+
+          // 자동 로그인
+          const loginResult = await callApi('loginTeacherWithEmail', {
+            email: email,
+            password: password
+          });
+
+          if (loginResult.success) {
+            AppState.teacherToken = loginResult.teacherToken;
+            AppState.teacherEmail = loginResult.email;
+            AppState.teacherName = loginResult.name;
+            AppState.teacherRole = loginResult.role;
+            AppState.isTeacher = true;
+
+            sessionStorage.setItem('teacherToken', loginResult.teacherToken);
+            sessionStorage.setItem('teacherEmail', loginResult.email);
+            sessionStorage.setItem('teacherRole', loginResult.role);
+
+            navigateTo('teacher-dashboard');
+          }
+        } else {
+          // 일반 교사 - 승인 대기
+          showToast('계정 신청이 완료되었습니다!', 'success');
+          navigateTo('teacher-login', { mode: 'pending' });
+        }
+      } else {
+        errorDiv.textContent = result.error || '계정 신청에 실패했습니다.';
+        errorDiv.style.display = 'block';
+      }
+    } catch (error) {
+      console.error('회원가입 오류:', error);
+      errorDiv.textContent = '오류가 발생했습니다.';
+      errorDiv.style.display = 'block';
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 로그인 화면 표시
+   */
+  function showTeacherLogin() {
+    navigateTo('teacher-login', { mode: 'login' });
+  }
+
+  /**
+   * 회원가입 화면 표시
+   */
+  function showTeacherRegister() {
+    navigateTo('teacher-login', { mode: 'register' });
   }
 
   /**
@@ -296,39 +432,92 @@
     showLoading('확인 중...');
 
     try {
-      // 먼저 Google 계정 권한 확인
-      const googleAuth = await callApi('checkGoogleAuth');
+      // 세션에 저장된 토큰이 있으면 검증
+      const savedToken = sessionStorage.getItem('teacherToken');
+      if (savedToken) {
+        const verifyResult = await callApi('verifyTeacherSession', {
+          teacherToken: savedToken
+        });
 
-      if (googleAuth.isAuthorized) {
-        // Google 계정으로 인증됨 - 바로 대시보드로
-        AppState.isTeacher = true;
-        const firstSetup = await callApi('isFirstSetup');
+        if (verifyResult.success && verifyResult.valid) {
+          AppState.teacherToken = savedToken;
+          AppState.teacherEmail = verifyResult.email;
+          AppState.teacherName = verifyResult.name;
+          AppState.teacherRole = verifyResult.role;
+          AppState.isTeacher = true;
 
-        if (firstSetup.isFirstSetup) {
-          navigateTo('teacher-setup');
-        } else {
           navigateTo('teacher-dashboard');
+          return;
+        } else {
+          // 토큰 무효 - 삭제
+          sessionStorage.removeItem('teacherToken');
+          sessionStorage.removeItem('teacherEmail');
+          sessionStorage.removeItem('teacherRole');
         }
-        return;
       }
 
-      // Google 계정이 아니면 PIN 확인
-      const [firstSetup, hasPin] = await Promise.all([
-        callApi('isFirstSetup'),
-        callApi('hasTeacherPin')
-      ]);
-
-      navigateTo('teacher-login', {
-        isFirstSetup: firstSetup.isFirstSetup,
-        hasPin: hasPin.hasPin
-      });
+      // 로그인 화면 표시
+      navigateTo('teacher-login', { mode: 'login' });
 
     } catch (error) {
       console.error('교사 로그인 확인 실패:', error);
       showToast('오류가 발생했습니다.', 'error');
-      navigateTo('login');
+      navigateTo('teacher-login', { mode: 'login' });
     } finally {
       hideLoading();
     }
+  }
+
+  // ============================================
+  // 레거시 호환 (기존 PIN 방식 - 삭제 예정)
+  // ============================================
+
+  /**
+   * @deprecated 이메일 로그인으로 대체됨
+   */
+  function renderFirstSetupPrompt() {
+    return renderRegisterForm();
+  }
+
+  /**
+   * @deprecated 이메일 로그인으로 대체됨
+   */
+  function renderLoginForm(hasPin, settings) {
+    return renderEmailLoginForm(settings);
+  }
+
+  /**
+   * @deprecated
+   */
+  function setupTeacherPinInput() {
+    // PIN 방식 더 이상 사용 안함
+  }
+
+  /**
+   * @deprecated
+   */
+  function getTeacherPinValue(containerId) {
+    return '';
+  }
+
+  /**
+   * @deprecated
+   */
+  async function submitNewTeacherPin() {
+    showToast('PIN 방식은 더 이상 지원되지 않습니다. 이메일로 로그인해주세요.', 'info');
+  }
+
+  /**
+   * @deprecated
+   */
+  async function submitTeacherLogin() {
+    showToast('PIN 방식은 더 이상 지원되지 않습니다. 이메일로 로그인해주세요.', 'info');
+  }
+
+  /**
+   * @deprecated
+   */
+  function clearTeacherPinInput(containerId) {
+    // 더 이상 사용 안함
   }
 </script>

@@ -1,6 +1,6 @@
 <script>
   /* ============================================
-     교사 대시보드
+     교사 대시보드 (다중 교사 지원)
      ============================================ */
 
   let dashboardData = {};
@@ -23,10 +23,23 @@
     }
 
     const { systemInfo, students } = dashboardData;
+    const teacherRole = AppState.teacherRole || sessionStorage.getItem('teacherRole') || 'teacher';
+    const isAdmin = teacherRole === 'admin';
 
     container.innerHTML = `
       <div class="container fade-in">
         ${renderTeacherHeader('', 'dashboard')}
+
+        <!-- 현재 로그인 정보 -->
+        <div class="card mb-2" style="background: var(--primary-light); padding: 12px 16px;">
+          <div class="flex justify-between items-center">
+            <div>
+              <span style="font-weight: 600;">👤 ${escapeHtml(AppState.teacherName || '선생님')}</span>
+              ${isAdmin ? '<span class="badge" style="background: var(--warning); color: white; margin-left: 8px;">관리자</span>' : ''}
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="logoutTeacher()">로그아웃</button>
+          </div>
+        </div>
 
         <!-- 통계 카드 -->
         <div class="flex gap-2 mb-3" style="flex-wrap: wrap;">
@@ -51,6 +64,11 @@
             <button class="btn btn-outline" onclick="copyClassUrl()">
               🔗 URL 복사
             </button>
+            ${isAdmin ? `
+              <button class="btn btn-outline" onclick="navigateTo('teacher-manage')" style="border-color: var(--warning); color: var(--warning-dark);">
+                👩‍🏫 교사 관리
+              </button>
+            ` : ''}
           </div>
         </div>
 
@@ -83,6 +101,22 @@
         </div>
       </div>
     `;
+  }
+
+  /**
+   * 교사 로그아웃
+   */
+  function logoutTeacher() {
+    sessionStorage.removeItem('teacherToken');
+    sessionStorage.removeItem('teacherEmail');
+    sessionStorage.removeItem('teacherRole');
+    AppState.isTeacher = false;
+    AppState.teacherToken = null;
+    AppState.teacherEmail = null;
+    AppState.teacherName = null;
+    AppState.teacherRole = null;
+    showToast('로그아웃되었습니다.', 'info');
+    navigateTo('login');
   }
 
   /**
@@ -446,6 +480,412 @@
   }
 
   /* ============================================
+     교사 관리 (관리자 전용)
+     ============================================ */
+
+  let teacherListData = [];
+
+  async function renderTeacherManage(container) {
+    const teacherRole = AppState.teacherRole || sessionStorage.getItem('teacherRole');
+
+    // 관리자 권한 확인
+    if (teacherRole !== 'admin') {
+      container.innerHTML = `
+        <div class="container fade-in">
+          ${renderTeacherHeader('교사 관리', 'teachers')}
+          <div class="card">
+            <div class="text-center">
+              <div style="font-size: 3rem; margin-bottom: 16px;">🔒</div>
+              <h3>접근 권한이 없습니다</h3>
+              <p style="color: var(--text-light);">관리자만 교사 관리 기능을 사용할 수 있습니다.</p>
+              <button class="btn btn-primary mt-3" onclick="navigateTo('teacher-dashboard')">
+                대시보드로 돌아가기
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // 교사 목록 로드
+    showLoading('교사 목록 로딩 중...');
+    try {
+      const result = await callApi('getAllTeachers');
+      teacherListData = result.success ? result.data : [];
+    } catch (error) {
+      teacherListData = [];
+    }
+    hideLoading();
+
+    const pendingTeachers = teacherListData.filter(t => t.status === 'pending');
+    const approvedTeachers = teacherListData.filter(t => t.status === 'approved');
+    const rejectedTeachers = teacherListData.filter(t => t.status === 'rejected' || t.status === 'suspended');
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderTeacherHeader('교사 관리', 'teachers')}
+
+        <!-- 통계 -->
+        <div class="flex gap-2 mb-3" style="flex-wrap: wrap;">
+          ${renderStatCard('👩‍🏫', '전체 교사', teacherListData.length, 'primary')}
+          ${renderStatCard('⏳', '승인 대기', pendingTeachers.length, 'warning')}
+          ${renderStatCard('✅', '승인됨', approvedTeachers.length, 'secondary')}
+        </div>
+
+        <!-- 승인 대기 교사 -->
+        ${pendingTeachers.length > 0 ? `
+          <div class="card mb-3" style="border: 2px solid var(--warning);">
+            <div class="flex justify-between items-center mb-2">
+              <h3>⏳ 승인 대기 중인 교사</h3>
+              <span class="badge" style="background: var(--warning); color: white;">${pendingTeachers.length}명</span>
+            </div>
+            <div id="pending-teachers-list">
+              ${renderPendingTeachersList(pendingTeachers)}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- 승인된 교사 목록 -->
+        <div class="card mb-3">
+          <div class="flex justify-between items-center mb-2">
+            <h3>✅ 승인된 교사</h3>
+            <button class="btn btn-sm btn-ghost" onclick="refreshTeacherList()">
+              🔄 새로고침
+            </button>
+          </div>
+          <div id="approved-teachers-list">
+            ${renderApprovedTeachersList(approvedTeachers)}
+          </div>
+        </div>
+
+        <!-- 거부/정지된 교사 -->
+        ${rejectedTeachers.length > 0 ? `
+          <div class="card" style="background: var(--danger-light);">
+            <h3 style="margin-bottom: 12px;">🚫 거부/정지된 교사</h3>
+            <div id="rejected-teachers-list">
+              ${renderRejectedTeachersList(rejectedTeachers)}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * 승인 대기 교사 목록 렌더링
+   */
+  function renderPendingTeachersList(teachers) {
+    if (teachers.length === 0) {
+      return '<p style="color: var(--text-light); text-align: center;">승인 대기 중인 교사가 없습니다.</p>';
+    }
+
+    return `
+      <div class="flex flex-col gap-2">
+        ${teachers.map(teacher => `
+          <div class="flex justify-between items-center" style="padding: 12px; background: white; border-radius: 8px;">
+            <div>
+              <strong>${escapeHtml(teacher.name)}</strong>
+              <span style="color: var(--text-light); font-size: 0.85rem; margin-left: 8px;">${escapeHtml(teacher.email)}</span>
+              <br>
+              <small style="color: var(--text-light);">신청일: ${formatDate(teacher.registeredAt)}</small>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-sm btn-primary" onclick="approveTeacher('${escapeHtml(teacher.email)}')">
+                ✅ 승인
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="showRejectTeacherModal('${escapeHtml(teacher.email)}', '${escapeHtml(teacher.name)}')">
+                ❌ 거부
+              </button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * 승인된 교사 목록 렌더링
+   */
+  function renderApprovedTeachersList(teachers) {
+    if (teachers.length === 0) {
+      return '<p style="color: var(--text-light); text-align: center;">승인된 교사가 없습니다.</p>';
+    }
+
+    const currentEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+
+    return `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>이름</th>
+            <th>이메일</th>
+            <th>역할</th>
+            <th>승인일</th>
+            <th>관리</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${teachers.map(teacher => `
+            <tr>
+              <td>
+                <strong>${escapeHtml(teacher.name)}</strong>
+                ${teacher.email === currentEmail ? '<span class="badge" style="background: var(--primary); color: white; margin-left: 4px;">나</span>' : ''}
+              </td>
+              <td style="font-size: 0.85rem;">${escapeHtml(teacher.email)}</td>
+              <td>
+                ${teacher.role === 'admin' ?
+                  '<span class="badge" style="background: var(--warning); color: white;">관리자</span>' :
+                  '<span class="badge" style="background: var(--secondary); color: white;">교사</span>'}
+              </td>
+              <td style="font-size: 0.85rem;">${formatDate(teacher.approvedAt)}</td>
+              <td>
+                ${teacher.email === currentEmail ? '-' : `
+                  <button class="btn btn-sm btn-ghost" onclick="showTeacherActionsModal('${escapeHtml(teacher.email)}', '${escapeHtml(teacher.name)}', '${teacher.role}')">
+                    ⋮
+                  </button>
+                `}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  /**
+   * 거부/정지된 교사 목록 렌더링
+   */
+  function renderRejectedTeachersList(teachers) {
+    return `
+      <div class="flex flex-col gap-2">
+        ${teachers.map(teacher => `
+          <div class="flex justify-between items-center" style="padding: 8px; background: white; border-radius: 8px;">
+            <div>
+              <strong>${escapeHtml(teacher.name)}</strong>
+              <span style="color: var(--text-light); font-size: 0.85rem; margin-left: 8px;">${escapeHtml(teacher.email)}</span>
+              <br>
+              <small style="color: var(--danger);">상태: ${teacher.status === 'rejected' ? '거부됨' : '정지됨'}</small>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="reactivateTeacher('${escapeHtml(teacher.email)}')">
+              복구
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * 교사 승인
+   */
+  async function approveTeacher(email) {
+    showLoading('승인 중...');
+    try {
+      const adminEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+      const result = await callApi('approveTeacher', { email, adminEmail });
+
+      if (result.success) {
+        showToast('교사가 승인되었습니다!', 'success');
+        navigateTo('teacher-manage'); // 새로고침
+      } else {
+        showToast(result.error || '승인 실패', 'error');
+      }
+    } catch (error) {
+      showToast('승인 중 오류가 발생했습니다.', 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 교사 거부 모달
+   */
+  function showRejectTeacherModal(email, name) {
+    showModal({
+      title: '❌ 교사 승인 거부',
+      content: `
+        <p style="margin-bottom: 16px;">
+          <strong>${escapeHtml(name)}</strong> (${escapeHtml(email)})의 승인을 거부합니다.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">거부 사유 (선택)</label>
+          <textarea id="reject-reason" class="form-input" rows="3" placeholder="거부 사유를 입력하세요..."></textarea>
+        </div>
+      `,
+      buttons: [
+        { text: '취소', class: 'btn-outline' },
+        { text: '거부', class: 'btn-danger', onclick: `submitRejectTeacher('${escapeHtml(email)}')` }
+      ]
+    });
+  }
+
+  /**
+   * 교사 거부 제출
+   */
+  async function submitRejectTeacher(email) {
+    const reason = document.getElementById('reject-reason')?.value.trim() || '';
+
+    closeModal();
+    showLoading('처리 중...');
+
+    try {
+      const result = await callApi('rejectTeacher', { email, reason });
+
+      if (result.success) {
+        showToast('교사 승인이 거부되었습니다.', 'info');
+        navigateTo('teacher-manage');
+      } else {
+        showToast(result.error || '거부 처리 실패', 'error');
+      }
+    } catch (error) {
+      showToast('처리 중 오류가 발생했습니다.', 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 교사 액션 모달
+   */
+  function showTeacherActionsModal(email, name, currentRole) {
+    const isAdmin = currentRole === 'admin';
+
+    showModal({
+      title: `👩‍🏫 ${escapeHtml(name)}`,
+      content: `
+        <p style="color: var(--text-light); margin-bottom: 16px;">${escapeHtml(email)}</p>
+        <div class="flex flex-col gap-2">
+          <button class="btn btn-outline btn-block" onclick="changeTeacherRole('${escapeHtml(email)}', '${isAdmin ? 'teacher' : 'admin'}')">
+            ${isAdmin ? '👤 일반 교사로 변경' : '👑 관리자로 승격'}
+          </button>
+          <button class="btn btn-outline btn-block" onclick="suspendTeacher('${escapeHtml(email)}')">
+            🚫 계정 정지
+          </button>
+          <hr style="margin: 8px 0; border: none; border-top: 1px solid var(--border);">
+          <button class="btn btn-danger btn-block" onclick="confirmDeleteTeacher('${escapeHtml(email)}', '${escapeHtml(name)}')">
+            🗑️ 계정 삭제
+          </button>
+        </div>
+      `
+    });
+  }
+
+  /**
+   * 교사 역할 변경
+   */
+  async function changeTeacherRole(email, newRole) {
+    closeModal();
+    showLoading('처리 중...');
+
+    try {
+      const adminEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+      const result = await callApi('updateTeacherRole', { email, role: newRole, adminEmail });
+
+      if (result.success) {
+        const roleText = newRole === 'admin' ? '관리자' : '일반 교사';
+        showToast(`${roleText}로 변경되었습니다.`, 'success');
+        navigateTo('teacher-manage');
+      } else {
+        showToast(result.error || '역할 변경 실패', 'error');
+      }
+    } catch (error) {
+      showToast('처리 중 오류가 발생했습니다.', 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 교사 계정 정지
+   */
+  async function suspendTeacher(email) {
+    closeModal();
+
+    showConfirm(
+      '이 교사의 계정을 정지하시겠습니까? 정지된 교사는 로그인할 수 없습니다.',
+      async () => {
+        showLoading('처리 중...');
+        try {
+          const adminEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+          const result = await callApi('updateTeacherRole', { email, role: 'suspended', adminEmail });
+
+          if (result.success) {
+            showToast('계정이 정지되었습니다.', 'info');
+            navigateTo('teacher-manage');
+          } else {
+            showToast(result.error || '정지 처리 실패', 'error');
+          }
+        } catch (error) {
+          showToast('처리 중 오류가 발생했습니다.', 'error');
+        } finally {
+          hideLoading();
+        }
+      }
+    );
+  }
+
+  /**
+   * 교사 계정 복구
+   */
+  async function reactivateTeacher(email) {
+    showLoading('처리 중...');
+
+    try {
+      const adminEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+      const result = await callApi('approveTeacher', { email, adminEmail });
+
+      if (result.success) {
+        showToast('계정이 복구되었습니다.', 'success');
+        navigateTo('teacher-manage');
+      } else {
+        showToast(result.error || '복구 실패', 'error');
+      }
+    } catch (error) {
+      showToast('처리 중 오류가 발생했습니다.', 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  /**
+   * 교사 삭제 확인
+   */
+  function confirmDeleteTeacher(email, name) {
+    closeModal();
+
+    showConfirm(
+      `정말 ${name} 교사의 계정을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
+      async () => {
+        showLoading('삭제 중...');
+        try {
+          const adminEmail = AppState.teacherEmail || sessionStorage.getItem('teacherEmail');
+          const result = await callApi('deleteTeacher', { email, adminEmail });
+
+          if (result.success) {
+            showToast('교사 계정이 삭제되었습니다.', 'success');
+            navigateTo('teacher-manage');
+          } else {
+            showToast(result.error || '삭제 실패', 'error');
+          }
+        } catch (error) {
+          showToast('삭제 중 오류가 발생했습니다.', 'error');
+        } finally {
+          hideLoading();
+        }
+      }
+    );
+  }
+
+  /**
+   * 교사 목록 새로고침
+   */
+  function refreshTeacherList() {
+    navigateTo('teacher-manage');
+  }
+
+  /* ============================================
      교사 학생 관리 (별도 페이지)
      ============================================ */
 
@@ -590,6 +1030,8 @@
 
   async function renderTeacherSettings(container) {
     const settings = AppState.settings || await callApi('getSettings');
+    const teacherRole = AppState.teacherRole || sessionStorage.getItem('teacherRole');
+    const isAdmin = teacherRole === 'admin';
 
     container.innerHTML = `
       <div class="container fade-in">
@@ -630,8 +1072,23 @@
           <table class="table">
             <tr><td>버전</td><td>${escapeHtml(settings.version || VERSION)}</td></tr>
             <tr><td>생성일</td><td>${formatDate(settings.createdAt)}</td></tr>
+            <tr><td>내 역할</td><td>${isAdmin ? '<span class="badge" style="background: var(--warning); color: white;">관리자</span>' : '교사'}</td></tr>
           </table>
         </div>
+
+        ${isAdmin ? `
+          <div class="card mt-3" style="border: 2px solid var(--warning);">
+            <h3 style="margin-bottom: 16px; color: var(--warning-dark);">👑 관리자 기능</h3>
+            <div class="flex gap-2" style="flex-wrap: wrap;">
+              <button class="btn btn-outline" onclick="navigateTo('teacher-manage')">
+                👩‍🏫 교사 관리
+              </button>
+              <button class="btn btn-outline" onclick="initializeSystem()">
+                🔄 시스템 재초기화
+              </button>
+            </div>
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -661,5 +1118,29 @@
     } catch (error) {
       showToast('설정 저장 중 오류가 발생했습니다.', 'error');
     }
+  }
+
+  /**
+   * 시스템 재초기화
+   */
+  function initializeSystem() {
+    showConfirm(
+      '시스템을 재초기화하시겠습니까? 시트 구조가 다시 설정됩니다.',
+      async () => {
+        showLoading('초기화 중...');
+        try {
+          const result = await callApi('initialize');
+          if (result.success) {
+            showToast('시스템이 초기화되었습니다.', 'success');
+          } else {
+            showToast(result.error || '초기화 실패', 'error');
+          }
+        } catch (error) {
+          showToast('초기화 중 오류가 발생했습니다.', 'error');
+        } finally {
+          hideLoading();
+        }
+      }
+    );
   }
 </script>

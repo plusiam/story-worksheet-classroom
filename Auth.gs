@@ -519,3 +519,479 @@ function logoutTeacher() {
   saveSettings({ teacherSession: '' });
   return { success: true };
 }
+
+// ============================================
+// 다중 교사 관리 시스템
+// ============================================
+
+/**
+ * 교사 회원가입
+ * @param {string} email - 이메일
+ * @param {string} name - 이름
+ * @param {string} password - 비밀번호
+ * @returns {object} { success, error?, needApproval? }
+ */
+function registerTeacher(email, name, password) {
+  // 입력값 검증
+  if (!email || !email.includes('@')) {
+    return { success: false, error: '올바른 이메일을 입력해주세요.' };
+  }
+  if (!name || name.trim().length < 2) {
+    return { success: false, error: '이름은 2자 이상 입력해주세요.' };
+  }
+  if (!password || password.length < 4) {
+    return { success: false, error: '비밀번호는 4자리 이상이어야 합니다.' };
+  }
+
+  const sheet = getOrCreateSheet(SHEET_NAMES.TEACHERS);
+  const data = sheet.getDataRange().getValues();
+
+  // 이메일 중복 확인
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      return { success: false, error: '이미 등록된 이메일입니다.' };
+    }
+  }
+
+  // 비밀번호 해시 생성
+  const passwordHash = hashTeacherPassword(password);
+  const now = new Date().toISOString();
+
+  // 첫 번째 교사면 자동으로 admin + approved
+  const isFirstTeacher = data.length <= 1;
+  const role = isFirstTeacher ? 'admin' : 'teacher';
+  const status = isFirstTeacher ? 'approved' : 'pending';
+  const approvedAt = isFirstTeacher ? now : '';
+
+  // 새 교사 추가
+  sheet.appendRow([
+    email.toLowerCase().trim(),
+    name.trim(),
+    passwordHash,
+    role,
+    status,
+    now,
+    approvedAt,
+    ''
+  ]);
+
+  if (isFirstTeacher) {
+    return {
+      success: true,
+      message: '관리자로 등록되었습니다. 바로 로그인할 수 있습니다.',
+      isAdmin: true
+    };
+  }
+
+  return {
+    success: true,
+    message: '가입 신청이 완료되었습니다. 관리자 승인 후 사용할 수 있습니다.',
+    needApproval: true
+  };
+}
+
+/**
+ * 교사 이메일/비밀번호 로그인
+ * @param {string} email - 이메일
+ * @param {string} password - 비밀번호
+ * @returns {object} { success, teacher?, error? }
+ */
+function loginTeacherWithEmail(email, password) {
+  if (!email || !password) {
+    return { success: false, error: '이메일과 비밀번호를 입력해주세요.' };
+  }
+
+  // Rate Limiting
+  const identifier = 'teacher:' + email.toLowerCase();
+  const rateCheck = RateLimiter.checkLimit(identifier, 'login');
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `너무 많은 로그인 시도입니다. ${rateCheck.retryAfter}분 후에 다시 시도해주세요.`,
+      rateLimited: true
+    };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { success: false, error: '교사 데이터를 찾을 수 없습니다.' };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  let teacherRow = null;
+  let rowIndex = -1;
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      teacherRow = data[i];
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (!teacherRow) {
+    RateLimiter.recordAttempt(identifier, 'login');
+    return { success: false, error: '등록되지 않은 이메일입니다.' };
+  }
+
+  // 비밀번호 확인
+  const inputHash = hashTeacherPassword(password);
+  if (teacherRow[2] !== inputHash) {
+    RateLimiter.recordAttempt(identifier, 'login');
+    return { success: false, error: '비밀번호가 올바르지 않습니다.' };
+  }
+
+  // 상태 확인
+  const status = teacherRow[4];
+  if (status === 'pending') {
+    return { success: false, error: '관리자 승인 대기 중입니다.', needApproval: true };
+  }
+  if (status === 'rejected') {
+    return { success: false, error: '가입이 거절되었습니다.' };
+  }
+  if (status === 'suspended') {
+    return { success: false, error: '계정이 정지되었습니다.' };
+  }
+
+  // 로그인 성공
+  RateLimiter.resetAttempts(identifier, 'login');
+
+  // 마지막 접속 시간 업데이트
+  sheet.getRange(rowIndex, 8).setValue(new Date().toISOString());
+
+  // 세션 토큰 생성
+  const teacherToken = generateTeacherToken();
+  saveTeacherSessionWithEmail(teacherToken, email.toLowerCase());
+
+  return {
+    success: true,
+    teacher: {
+      email: teacherRow[0],
+      name: teacherRow[1],
+      role: teacherRow[3],
+      status: teacherRow[4]
+    },
+    teacherToken: teacherToken
+  };
+}
+
+/**
+ * 교사 승인 (관리자 전용)
+ * @param {string} email - 승인할 교사 이메일
+ * @param {string} adminEmail - 승인하는 관리자 이메일
+ * @returns {object} { success, error? }
+ */
+function approveTeacher(email, adminEmail) {
+  // 관리자 권한 확인
+  const adminCheck = checkAdminPermission(adminEmail);
+  if (!adminCheck.isAdmin) {
+    return { success: false, error: '관리자 권한이 필요합니다.' };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { success: false, error: '교사 데이터를 찾을 수 없습니다.' };
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      if (data[i][4] !== 'pending') {
+        return { success: false, error: '대기 상태가 아닙니다.' };
+      }
+
+      // 상태를 approved로 변경
+      sheet.getRange(i + 1, 5).setValue('approved');
+      sheet.getRange(i + 1, 7).setValue(new Date().toISOString());
+
+      return { success: true, message: `${data[i][1]} 선생님이 승인되었습니다.` };
+    }
+  }
+
+  return { success: false, error: '교사를 찾을 수 없습니다.' };
+}
+
+/**
+ * 교사 가입 거절 (관리자 전용)
+ * @param {string} email - 거절할 교사 이메일
+ * @param {string} reason - 거절 사유
+ * @returns {object} { success, error? }
+ */
+function rejectTeacher(email, reason) {
+  const adminCheck = checkCurrentUserAdmin();
+  if (!adminCheck.isAdmin) {
+    return { success: false, error: '관리자 권한이 필요합니다.' };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { success: false, error: '교사 데이터를 찾을 수 없습니다.' };
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      sheet.getRange(i + 1, 5).setValue('rejected');
+      return { success: true, message: '가입 요청이 거절되었습니다.' };
+    }
+  }
+
+  return { success: false, error: '교사를 찾을 수 없습니다.' };
+}
+
+/**
+ * 모든 교사 목록 조회 (관리자 전용)
+ * @returns {object} { success, data?, error? }
+ */
+function getAllTeachers() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { success: true, data: [] };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const teachers = [];
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) {
+      teachers.push({
+        email: data[i][0],
+        name: data[i][1],
+        role: data[i][3],
+        status: data[i][4],
+        registeredAt: data[i][5],
+        approvedAt: data[i][6],
+        lastLogin: data[i][7]
+      });
+    }
+  }
+
+  return { success: true, data: teachers };
+}
+
+/**
+ * 교사 역할 변경 (관리자 전용)
+ * @param {string} email - 대상 교사 이메일
+ * @param {string} role - 새 역할 (admin, teacher)
+ * @param {string} adminEmail - 변경하는 관리자 이메일
+ * @returns {object} { success, error? }
+ */
+function updateTeacherRole(email, role, adminEmail) {
+  const adminCheck = checkAdminPermission(adminEmail);
+  if (!adminCheck.isAdmin) {
+    return { success: false, error: '관리자 권한이 필요합니다.' };
+  }
+
+  if (!['admin', 'teacher'].includes(role)) {
+    return { success: false, error: '올바른 역할을 선택해주세요.' };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      // 자신의 역할은 변경 불가
+      if (email.toLowerCase() === adminEmail.toLowerCase() && role !== 'admin') {
+        return { success: false, error: '자신의 관리자 권한은 해제할 수 없습니다.' };
+      }
+
+      sheet.getRange(i + 1, 4).setValue(role);
+      return { success: true, message: `역할이 ${role === 'admin' ? '관리자' : '교사'}로 변경되었습니다.` };
+    }
+  }
+
+  return { success: false, error: '교사를 찾을 수 없습니다.' };
+}
+
+/**
+ * 교사 계정 삭제 (관리자 전용)
+ * @param {string} email - 삭제할 교사 이메일
+ * @param {string} adminEmail - 삭제하는 관리자 이메일
+ * @returns {object} { success, error? }
+ */
+function deleteTeacherAccount(email, adminEmail) {
+  const adminCheck = checkAdminPermission(adminEmail);
+  if (!adminCheck.isAdmin) {
+    return { success: false, error: '관리자 권한이 필요합니다.' };
+  }
+
+  // 자신 삭제 불가
+  if (email.toLowerCase() === adminEmail.toLowerCase()) {
+    return { success: false, error: '자신의 계정은 삭제할 수 없습니다.' };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: '교사 계정이 삭제되었습니다.' };
+    }
+  }
+
+  return { success: false, error: '교사를 찾을 수 없습니다.' };
+}
+
+/**
+ * 이메일로 교사 정보 조회
+ * @param {string} email - 교사 이메일
+ * @returns {object} { success, teacher?, error? }
+ */
+function getTeacherByEmail(email) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { success: false, error: '교사 데이터를 찾을 수 없습니다.' };
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      return {
+        success: true,
+        teacher: {
+          email: data[i][0],
+          name: data[i][1],
+          role: data[i][3],
+          status: data[i][4],
+          registeredAt: data[i][5],
+          approvedAt: data[i][6],
+          lastLogin: data[i][7]
+        }
+      };
+    }
+  }
+
+  return { success: false, error: '교사를 찾을 수 없습니다.' };
+}
+
+// ============================================
+// 다중 교사 헬퍼 함수
+// ============================================
+
+/**
+ * 교사 비밀번호 해시 생성
+ * @param {string} password - 원본 비밀번호
+ * @returns {string} 해시값
+ */
+function hashTeacherPassword(password) {
+  const settings = getSettings();
+  const salt = settings.pinSalt || 'default-salt';
+  const input = 'teacher-pw:' + password + ':' + salt;
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input);
+  return Utilities.base64Encode(hash);
+}
+
+/**
+ * 교사 세션 저장 (이메일 포함)
+ * @param {string} token - 세션 토큰
+ * @param {string} email - 교사 이메일
+ */
+function saveTeacherSessionWithEmail(token, email) {
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 8); // 8시간 유효
+
+  const sessionData = JSON.stringify({
+    token: token,
+    email: email,
+    createdAt: new Date().toISOString(),
+    expiresAt: expiresAt.toISOString()
+  });
+
+  saveSettings({ teacherSession: sessionData });
+}
+
+/**
+ * 관리자 권한 확인
+ * @param {string} email - 확인할 이메일
+ * @returns {object} { isAdmin, teacher? }
+ */
+function checkAdminPermission(email) {
+  if (!email) {
+    return { isAdmin: false };
+  }
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.TEACHERS);
+  if (!sheet) {
+    return { isAdmin: false };
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+      return {
+        isAdmin: data[i][3] === 'admin' && data[i][4] === 'approved',
+        teacher: {
+          email: data[i][0],
+          name: data[i][1],
+          role: data[i][3],
+          status: data[i][4]
+        }
+      };
+    }
+  }
+
+  return { isAdmin: false };
+}
+
+/**
+ * 현재 세션의 관리자 여부 확인
+ * @returns {object} { isAdmin, email? }
+ */
+function checkCurrentUserAdmin() {
+  const settings = getSettings();
+  const sessionData = settings.teacherSession;
+
+  if (!sessionData) {
+    return { isAdmin: false };
+  }
+
+  try {
+    const session = JSON.parse(sessionData);
+    if (new Date() > new Date(session.expiresAt)) {
+      return { isAdmin: false };
+    }
+
+    return checkAdminPermission(session.email);
+  } catch (e) {
+    return { isAdmin: false };
+  }
+}
+
+/**
+ * 첫 관리자 초기화 (스프레드시트 소유자)
+ * @param {Sheet} sheet - TEACHERS 시트
+ */
+function initializeFirstAdmin(sheet) {
+  const data = sheet.getDataRange().getValues();
+
+  // 이미 교사가 있으면 스킵
+  if (data.length > 1) {
+    return;
+  }
+
+  // 스프레드시트 소유자를 첫 관리자로 등록
+  try {
+    const ownerEmail = SpreadsheetApp.getActive().getOwner().getEmail();
+    const now = new Date().toISOString();
+
+    sheet.appendRow([
+      ownerEmail,
+      '관리자',
+      '', // 비밀번호는 나중에 설정
+      'admin',
+      'approved',
+      now,
+      now,
+      ''
+    ]);
+  } catch (e) {
+    // 소유자 정보를 가져올 수 없는 경우 스킵
+    console.log('첫 관리자 자동 등록 실패:', e.message);
+  }
+}

@@ -16,12 +16,14 @@ const SHEET_NAMES = {
   WORKS_STEP1: 'WORKS_STEP1',
   WORKS_STEP2: 'WORKS_STEP2',
   WORKS_STEP3: 'WORKS_STEP3',
-  SETTINGS: 'SETTINGS'
+  SETTINGS: 'SETTINGS',
+  TEACHERS: 'TEACHERS'
 };
 
 const STUDENT_HEADERS = ['이름', '번호', 'PIN해시', '토큰', '등록일', '마지막접속', '상태'];
 const WORK_HEADERS = ['학생이름', '학생번호', '작품데이터', '생성일', '수정일', '완료여부', '상태'];
 const SETTINGS_HEADERS = ['키', '값'];
+const TEACHER_HEADERS = ['이메일', '이름', '비밀번호해시', '역할', '상태', '등록일', '승인일', '마지막접속'];
 
 // ============================================
 // 웹앱 엔트리 포인트
@@ -88,6 +90,32 @@ function doPost(e) {
         break;
       case 'hasTeacherPin':
         result = hasTeacherPin();
+        break;
+
+      // 교사 관리 (다중 교사 시스템)
+      case 'registerTeacher':
+        result = registerTeacher(data.email, data.name, data.password);
+        break;
+      case 'loginTeacherWithEmail':
+        result = loginTeacherWithEmail(data.email, data.password);
+        break;
+      case 'approveTeacher':
+        result = approveTeacher(data.email, data.adminEmail);
+        break;
+      case 'rejectTeacher':
+        result = rejectTeacher(data.email, data.reason);
+        break;
+      case 'getAllTeachers':
+        result = getAllTeachers();
+        break;
+      case 'updateTeacherRole':
+        result = updateTeacherRole(data.email, data.role, data.adminEmail);
+        break;
+      case 'deleteTeacher':
+        result = deleteTeacherAccount(data.email, data.adminEmail);
+        break;
+      case 'getTeacherByEmail':
+        result = getTeacherByEmail(data.email);
         break;
 
       // 학생 관리 (교사용)
@@ -246,8 +274,18 @@ function initializeSpreadsheet() {
     }
     setupSheet(settingsSheet, SETTINGS_HEADERS);
 
+    // 6. TEACHERS 시트
+    let teachersSheet = ss.getSheetByName(SHEET_NAMES.TEACHERS);
+    if (!teachersSheet) {
+      teachersSheet = ss.insertSheet(SHEET_NAMES.TEACHERS);
+    }
+    setupSheet(teachersSheet, TEACHER_HEADERS);
+
     // 기본 설정값 저장
     initializeSettings(settingsSheet);
+
+    // 첫 관리자 설정 (스프레드시트 소유자)
+    initializeFirstAdmin(teachersSheet);
 
     // 기본 Sheet1 삭제 (있다면)
     const defaultSheet = ss.getSheetByName('Sheet1') || ss.getSheetByName('시트1');
