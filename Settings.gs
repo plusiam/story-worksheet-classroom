@@ -18,7 +18,7 @@ function getSettings() {
   if (!sheet) {
     return {
       systemMode: 'classroom',  // classroom 또는 personal
-      teacherName: '',
+      teacherName: getAdminName() || '', // TEACHERS 시트에서 admin 이름 조회
       schoolName: '',
       className: '',
       welcomeMessage: '오늘도 멋진 이야기를 만들어볼까요? 🌟',
@@ -37,6 +37,9 @@ function getSettings() {
       settings[key] = value;
     }
   }
+
+  // teacherName은 항상 TEACHERS 시트의 admin 이름으로 오버라이드 (정합성 유지)
+  settings.teacherName = getAdminName() || settings.teacherName || '';
 
   return settings;
 }
@@ -122,9 +125,11 @@ function completeInitialSetup(setupData) {
     return { success: false, error: '선생님 성함을 입력해주세요.' };
   }
 
-  // 설정 저장
+  // TEACHERS 시트의 admin 이름 업데이트 (정합성 유지)
+  updateAdminName(teacherName.trim());
+
+  // 설정 저장 (teacherName은 TEACHERS에서 관리하므로 제외 가능하지만, 하위 호환성 위해 유지)
   const result = saveSettings({
-    teacherName: teacherName.trim(),
     schoolName: (schoolName || '').trim(),
     className: (className || '').trim(),
     welcomeMessage: welcomeMessage || '오늘도 멋진 이야기를 만들어볼까요! 🌟',

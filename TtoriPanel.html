@@ -1,0 +1,855 @@
+<script>
+  /* ============================================
+     또리 AI 채팅 패널
+     ============================================ */
+
+  // 또리 패널 상태
+  const TtoriState = {
+    isOpen: false,
+    isLoading: false,
+    currentSessionId: null,
+    sessions: [],
+    messages: [],
+    workContext: null
+  };
+
+  /**
+   * 또리 패널 렌더링
+   */
+  function renderTtoriPanel() {
+    // 패널이 이미 있으면 삭제
+    const existing = document.getElementById('ttori-panel');
+    if (existing) existing.remove();
+
+    const panel = document.createElement('div');
+    panel.id = 'ttori-panel';
+    panel.className = 'ttori-panel';
+    panel.innerHTML = `
+      <div class="ttori-panel-inner">
+        <!-- 헤더 -->
+        <div class="ttori-header">
+          <div class="ttori-header-left">
+            <span class="ttori-avatar">🐤</span>
+            <div>
+              <h3 class="ttori-title">또리</h3>
+              <p class="ttori-subtitle">스토리 도우미</p>
+            </div>
+          </div>
+          <div class="ttori-header-right">
+            <button class="ttori-btn-icon" onclick="showTtoriSessions()" title="이전 대화">
+              📂
+            </button>
+            <button class="ttori-btn-icon" onclick="closeTtoriPanel()" title="닫기">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- 메시지 영역 -->
+        <div class="ttori-messages" id="ttori-messages">
+          <div class="ttori-welcome">
+            <div class="ttori-welcome-icon">🐤</div>
+            <h4>안녕! 나는 또리야!</h4>
+            <p>스토리 만들 때 도와줄게.<br>무엇이든 물어봐!</p>
+          </div>
+        </div>
+
+        <!-- 입력 영역 -->
+        <div class="ttori-input-area">
+          <div class="ttori-input-wrapper">
+            <textarea
+              id="ttori-input"
+              class="ttori-input"
+              placeholder="또리에게 물어보세요..."
+              rows="1"
+              onkeydown="handleTtoriKeydown(event)"
+              oninput="autoResizeTextarea(this)"
+            ></textarea>
+            <button class="ttori-send-btn" onclick="sendTtoriMessage()" id="ttori-send-btn">
+              <span>보내기</span>
+            </button>
+          </div>
+          <p class="ttori-hint">Enter로 전송, Shift+Enter로 줄바꿈</p>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // 애니메이션 시작
+    setTimeout(() => panel.classList.add('open'), 10);
+  }
+
+  /**
+   * 또리 패널 열기
+   */
+  async function openTtoriPanel(workContext) {
+    TtoriState.workContext = workContext || getCurrentWorkContext();
+    TtoriState.isOpen = true;
+
+    renderTtoriPanel();
+
+    // AI 활성화 상태 확인
+    try {
+      const result = await callApi('checkAiEnabled');
+      if (!result.enabled) {
+        showTtoriSystemMessage('AI 기능이 비활성화되어 있어요. 선생님께 문의해주세요!', 'warning');
+        return;
+      }
+
+      // 기존 세션 불러오기 시도
+      await loadTtoriSessionList();
+
+      // 마지막 세션이 있으면 불러오기
+      if (TtoriState.sessions.length > 0) {
+        const lastSession = TtoriState.sessions[0];
+        await loadTtoriSessionMessages(lastSession.sessionId);
+      }
+
+    } catch (error) {
+      console.error('또리 초기화 오류:', error);
+      showTtoriSystemMessage('또리를 불러오는 데 문제가 생겼어요.', 'error');
+    }
+  }
+
+  /**
+   * 또리 패널 닫기
+   */
+  function closeTtoriPanel() {
+    const panel = document.getElementById('ttori-panel');
+    if (panel) {
+      panel.classList.remove('open');
+      setTimeout(() => panel.remove(), 300);
+    }
+    TtoriState.isOpen = false;
+  }
+
+  /**
+   * 또리 패널 토글
+   */
+  function toggleTtoriPanel(workContext) {
+    if (TtoriState.isOpen) {
+      closeTtoriPanel();
+    } else {
+      openTtoriPanel(workContext);
+    }
+  }
+
+  /**
+   * 세션 목록 불러오기
+   */
+  async function loadTtoriSessionList() {
+    if (!AppState.currentUser) return;
+
+    try {
+      const result = await callApi('getTtoriSessions', {
+        studentName: AppState.currentUser.name,
+        studentNumber: AppState.currentUser.number
+      });
+
+      if (result.success) {
+        TtoriState.sessions = result.data || [];
+      }
+    } catch (error) {
+      console.error('세션 목록 불러오기 실패:', error);
+    }
+  }
+
+  /**
+   * 세션 메시지 불러오기
+   */
+  async function loadTtoriSessionMessages(sessionId) {
+    try {
+      showTtoriLoading(true);
+
+      const result = await callApi('loadTtoriSession', { sessionId });
+
+      if (result.success) {
+        TtoriState.currentSessionId = sessionId;
+        TtoriState.messages = result.data.messages || [];
+        renderTtoriMessages();
+      }
+    } catch (error) {
+      console.error('세션 메시지 불러오기 실패:', error);
+    } finally {
+      showTtoriLoading(false);
+    }
+  }
+
+  /**
+   * 메시지 전송
+   */
+  async function sendTtoriMessage() {
+    const input = document.getElementById('ttori-input');
+    const message = input.value.trim();
+
+    if (!message || TtoriState.isLoading) return;
+
+    input.value = '';
+    autoResizeTextarea(input);
+
+    // 세션이 없으면 새로 생성
+    if (!TtoriState.currentSessionId) {
+      const createResult = await callApi('createTtoriSession', {
+        studentName: AppState.currentUser.name,
+        studentNumber: AppState.currentUser.number,
+        step: TtoriState.workContext?.step || 1
+      });
+
+      if (!createResult.success) {
+        showTtoriSystemMessage(createResult.error, 'error');
+        return;
+      }
+
+      TtoriState.currentSessionId = createResult.data.sessionId;
+    }
+
+    // 사용자 메시지 표시
+    addTtoriMessage('user', message);
+
+    // AI 응답 요청
+    showTtoriLoading(true);
+
+    try {
+      const result = await callApi('sendMessageToTtori', {
+        sessionId: TtoriState.currentSessionId,
+        message: message,
+        workContext: TtoriState.workContext
+      });
+
+      if (result.success) {
+        addTtoriMessage('assistant', result.data.response);
+      } else {
+        showTtoriSystemMessage(result.error, 'error');
+      }
+    } catch (error) {
+      console.error('메시지 전송 실패:', error);
+      showTtoriSystemMessage('메시지 전송에 실패했어요. 다시 시도해주세요!', 'error');
+    } finally {
+      showTtoriLoading(false);
+    }
+  }
+
+  /**
+   * 메시지 추가 (UI)
+   */
+  function addTtoriMessage(role, content) {
+    TtoriState.messages.push({ role, content, timestamp: new Date().toISOString() });
+    renderTtoriMessages();
+  }
+
+  /**
+   * 메시지 목록 렌더링
+   */
+  function renderTtoriMessages() {
+    const container = document.getElementById('ttori-messages');
+    if (!container) return;
+
+    if (TtoriState.messages.length === 0) {
+      container.innerHTML = `
+        <div class="ttori-welcome">
+          <div class="ttori-welcome-icon">🐤</div>
+          <h4>안녕! 나는 또리야!</h4>
+          <p>스토리 만들 때 도와줄게.<br>무엇이든 물어봐!</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = TtoriState.messages.map(msg => `
+      <div class="ttori-message ${msg.role}">
+        ${msg.role === 'assistant' ? '<span class="ttori-msg-avatar">🐤</span>' : ''}
+        <div class="ttori-msg-content">
+          ${formatTtoriMessage(msg.content)}
+        </div>
+      </div>
+    `).join('');
+
+    // 스크롤 하단으로
+    container.scrollTop = container.scrollHeight;
+  }
+
+  /**
+   * 메시지 포맷팅 (마크다운 간단 처리)
+   */
+  function formatTtoriMessage(content) {
+    return content
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>')
+      .replace(/\*\*([ABC])\)\*\*/g, '<span class="ttori-option">$1)</span>');
+  }
+
+  /**
+   * 시스템 메시지 표시
+   */
+  function showTtoriSystemMessage(message, type = 'info') {
+    const container = document.getElementById('ttori-messages');
+    if (!container) return;
+
+    const msgEl = document.createElement('div');
+    msgEl.className = `ttori-system-message ${type}`;
+    msgEl.innerHTML = `
+      <span class="ttori-system-icon">${type === 'error' ? '😅' : type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+      <span>${message}</span>
+    `;
+
+    container.appendChild(msgEl);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  /**
+   * 로딩 상태 표시
+   */
+  function showTtoriLoading(show) {
+    TtoriState.isLoading = show;
+
+    const sendBtn = document.getElementById('ttori-send-btn');
+    if (sendBtn) {
+      sendBtn.disabled = show;
+      sendBtn.innerHTML = show ? '<span class="ttori-spinner"></span>' : '<span>보내기</span>';
+    }
+
+    if (show) {
+      const container = document.getElementById('ttori-messages');
+      if (container) {
+        const loadingEl = document.createElement('div');
+        loadingEl.className = 'ttori-message assistant loading';
+        loadingEl.id = 'ttori-loading-msg';
+        loadingEl.innerHTML = `
+          <span class="ttori-msg-avatar">🐤</span>
+          <div class="ttori-msg-content">
+            <span class="ttori-typing">
+              <span></span><span></span><span></span>
+            </span>
+          </div>
+        `;
+        container.appendChild(loadingEl);
+        container.scrollTop = container.scrollHeight;
+      }
+    } else {
+      const loadingMsg = document.getElementById('ttori-loading-msg');
+      if (loadingMsg) loadingMsg.remove();
+    }
+  }
+
+  /**
+   * 이전 대화 목록 표시
+   */
+  function showTtoriSessions() {
+    const container = document.getElementById('ttori-messages');
+    if (!container) return;
+
+    const sessions = TtoriState.sessions;
+
+    container.innerHTML = `
+      <div class="ttori-sessions-view">
+        <h4>📂 이전 대화 (${sessions.length}/3)</h4>
+        ${sessions.length === 0 ? `
+          <p class="ttori-empty">아직 대화 기록이 없어요.</p>
+        ` : `
+          <div class="ttori-session-list">
+            ${sessions.map(s => `
+              <div class="ttori-session-item" onclick="selectTtoriSession('${s.sessionId}')">
+                <div class="ttori-session-info">
+                  <span class="ttori-session-title">${escapeHtml(s.title)}</span>
+                  <span class="ttori-session-date">${formatDate(s.updatedAt)}</span>
+                </div>
+                <span class="ttori-session-count">${s.messageCount}개</span>
+              </div>
+            `).join('')}
+          </div>
+        `}
+        <div class="ttori-session-actions">
+          <button class="btn btn-primary btn-block" onclick="startNewTtoriSession()">
+            ✨ 새 대화 시작
+          </button>
+          <button class="btn btn-outline btn-block mt-2" onclick="renderTtoriMessages()">
+            ← 돌아가기
+          </button>
+        </div>
+        ${sessions.length >= 3 ? `
+          <p class="ttori-warning">⚠️ 새 대화를 시작하면 가장 오래된 대화가 삭제됩니다.</p>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * 세션 선택
+   */
+  async function selectTtoriSession(sessionId) {
+    await loadTtoriSessionMessages(sessionId);
+  }
+
+  /**
+   * 새 대화 시작
+   */
+  async function startNewTtoriSession() {
+    TtoriState.currentSessionId = null;
+    TtoriState.messages = [];
+    renderTtoriMessages();
+
+    // 입력창 포커스
+    setTimeout(() => {
+      const input = document.getElementById('ttori-input');
+      if (input) input.focus();
+    }, 100);
+  }
+
+  /**
+   * 현재 작품 컨텍스트 가져오기
+   */
+  function getCurrentWorkContext() {
+    // StoryCreator에서 현재 작품 정보 가져오기
+    if (typeof getCurrentStoryData === 'function') {
+      return getCurrentStoryData();
+    }
+    return null;
+  }
+
+  /**
+   * 키보드 이벤트 처리
+   */
+  function handleTtoriKeydown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendTtoriMessage();
+    }
+  }
+
+  /**
+   * 텍스트영역 자동 높이 조절
+   */
+  function autoResizeTextarea(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+  }
+
+  /**
+   * 날짜 포맷팅
+   */
+  function formatDate(isoString) {
+    const date = new Date(isoString);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return `${month}월 ${day}일`;
+  }
+</script>
+
+<!-- 또리 패널 스타일 -->
+<style>
+  /* 또리 패널 컨테이너 */
+  .ttori-panel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 380px;
+    max-width: calc(100vw - 40px);
+    height: 560px;
+    max-height: calc(100vh - 100px);
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transform: translateY(100%) scale(0.9);
+    opacity: 0;
+    transition: all 0.3s ease;
+  }
+
+  .ttori-panel.open {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  .ttori-panel-inner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  /* 헤더 */
+  .ttori-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #FFD93D 0%, #FF9F1C 100%);
+    color: white;
+  }
+
+  .ttori-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .ttori-avatar {
+    font-size: 2rem;
+    background: white;
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ttori-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .ttori-subtitle {
+    margin: 0;
+    font-size: 0.8rem;
+    opacity: 0.9;
+  }
+
+  .ttori-header-right {
+    display: flex;
+    gap: 8px;
+  }
+
+  .ttori-btn-icon {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background 0.2s;
+  }
+
+  .ttori-btn-icon:hover {
+    background: rgba(255,255,255,0.3);
+  }
+
+  /* 메시지 영역 */
+  .ttori-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f8f9fa;
+  }
+
+  /* 환영 메시지 */
+  .ttori-welcome {
+    text-align: center;
+    padding: 40px 20px;
+  }
+
+  .ttori-welcome-icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+  }
+
+  .ttori-welcome h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-dark);
+  }
+
+  .ttori-welcome p {
+    margin: 0;
+    color: var(--text-light);
+    font-size: 0.95rem;
+  }
+
+  /* 메시지 버블 */
+  .ttori-message {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    animation: ttori-fade-in 0.3s ease;
+  }
+
+  @keyframes ttori-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .ttori-message.user {
+    flex-direction: row-reverse;
+  }
+
+  .ttori-msg-avatar {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+
+  .ttori-msg-content {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .ttori-message.assistant .ttori-msg-content {
+    background: white;
+    color: var(--text-dark);
+    border-bottom-left-radius: 4px;
+  }
+
+  .ttori-message.user .ttori-msg-content {
+    background: #FFD93D;
+    color: #333;
+    border-bottom-right-radius: 4px;
+  }
+
+  .ttori-option {
+    display: inline-block;
+    background: #FF9F1C;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+
+  /* 시스템 메시지 */
+  .ttori-system-message {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+  }
+
+  .ttori-system-message.error {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .ttori-system-message.warning {
+    background: #fef3c7;
+    color: #d97706;
+  }
+
+  .ttori-system-message.info {
+    background: #dbeafe;
+    color: #2563eb;
+  }
+
+  /* 로딩 애니메이션 */
+  .ttori-typing {
+    display: flex;
+    gap: 4px;
+  }
+
+  .ttori-typing span {
+    width: 8px;
+    height: 8px;
+    background: #ccc;
+    border-radius: 50%;
+    animation: ttori-bounce 1.4s infinite ease-in-out both;
+  }
+
+  .ttori-typing span:nth-child(1) { animation-delay: -0.32s; }
+  .ttori-typing span:nth-child(2) { animation-delay: -0.16s; }
+
+  @keyframes ttori-bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+  }
+
+  .ttori-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: ttori-spin 0.8s linear infinite;
+  }
+
+  @keyframes ttori-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* 입력 영역 */
+  .ttori-input-area {
+    padding: 12px 16px;
+    background: white;
+    border-top: 1px solid #eee;
+  }
+
+  .ttori-input-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  .ttori-input {
+    flex: 1;
+    border: 2px solid #eee;
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size: 0.95rem;
+    resize: none;
+    max-height: 120px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .ttori-input:focus {
+    border-color: #FFD93D;
+  }
+
+  .ttori-send-btn {
+    background: #FFD93D;
+    color: #333;
+    border: none;
+    border-radius: 20px;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .ttori-send-btn:hover:not(:disabled) {
+    background: #FF9F1C;
+    color: white;
+  }
+
+  .ttori-send-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .ttori-hint {
+    margin: 8px 0 0 0;
+    font-size: 0.75rem;
+    color: var(--text-light);
+    text-align: center;
+  }
+
+  /* 세션 목록 */
+  .ttori-sessions-view {
+    padding: 16px;
+  }
+
+  .ttori-sessions-view h4 {
+    margin: 0 0 16px 0;
+  }
+
+  .ttori-empty {
+    text-align: center;
+    color: var(--text-light);
+    padding: 20px;
+  }
+
+  .ttori-session-list {
+    margin-bottom: 16px;
+  }
+
+  .ttori-session-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .ttori-session-item:hover {
+    background: #f0f0f0;
+    transform: translateX(4px);
+  }
+
+  .ttori-session-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ttori-session-title {
+    font-weight: 500;
+    color: var(--text-dark);
+  }
+
+  .ttori-session-date {
+    font-size: 0.8rem;
+    color: var(--text-light);
+  }
+
+  .ttori-session-count {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    background: #f0f0f0;
+    padding: 4px 8px;
+    border-radius: 10px;
+  }
+
+  .ttori-session-actions {
+    margin-top: 16px;
+  }
+
+  .ttori-warning {
+    margin-top: 12px;
+    padding: 12px;
+    background: #fef3c7;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #d97706;
+    text-align: center;
+  }
+
+  /* 또리 호출 버튼 (플로팅) */
+  .ttori-fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #FFD93D 0%, #FF9F1C 100%);
+    border: none;
+    box-shadow: 0 4px 20px rgba(255, 159, 28, 0.4);
+    cursor: pointer;
+    font-size: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9998;
+    transition: all 0.3s;
+  }
+
+  .ttori-fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 25px rgba(255, 159, 28, 0.5);
+  }
+
+  .ttori-fab.hidden {
+    display: none;
+  }
+
+  /* 모바일 대응 */
+  @media (max-width: 480px) {
+    .ttori-panel {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      bottom: 0;
+      right: 0;
+      border-radius: 0;
+    }
+
+    .ttori-fab {
+      bottom: 80px;
+    }
+  }
+</style>

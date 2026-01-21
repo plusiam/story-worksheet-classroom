@@ -17,7 +17,9 @@ const SHEET_NAMES = {
   WORKS_STEP2: 'WORKS_STEP2',
   WORKS_STEP3: 'WORKS_STEP3',
   SETTINGS: 'SETTINGS',
-  TEACHERS: 'TEACHERS'
+  TEACHERS: 'TEACHERS',
+  AI_SESSIONS: 'AI_SESSIONS',
+  AI_USAGE: 'AI_USAGE'
 };
 
 const STUDENT_HEADERS = ['이름', '번호', 'PIN해시', '토큰', '등록일', '마지막접속', '상태'];
@@ -99,6 +101,12 @@ function doPost(e) {
       case 'loginTeacherWithEmail':
         result = loginTeacherWithEmail(data.email, data.password);
         break;
+      case 'loginTeacherWithGoogle':
+        result = loginTeacherWithGoogle();
+        break;
+      case 'checkGoogleAuth':
+        result = checkGoogleAuth();
+        break;
       case 'approveTeacher':
         result = approveTeacher(data.email, data.adminEmail);
         break;
@@ -116,6 +124,9 @@ function doPost(e) {
         break;
       case 'getTeacherByEmail':
         result = getTeacherByEmail(data.email);
+        break;
+      case 'addTeacherByAdmin':
+        result = addTeacherByAdmin(data.email, data.name, data.role, data.adminEmail);
         break;
 
       // 학생 관리 (교사용)
@@ -177,10 +188,17 @@ function doPost(e) {
         result = getSettings();
         break;
       case 'saveSettings':
+        // teacherName이 포함되어 있으면 TEACHERS 시트도 업데이트
+        if (data.settings && data.settings.teacherName) {
+          updateAdminName(data.settings.teacherName);
+        }
         result = saveSettings(data.settings);
         break;
       case 'isFirstSetup':
         result = isFirstSetup();
+        break;
+      case 'getAdminName':
+        result = { success: true, name: getAdminName() };
         break;
 
       // 시스템 관련
@@ -192,6 +210,39 @@ function doPost(e) {
         break;
       case 'checkVersion':
         result = checkVersion();
+        break;
+
+      // 또리 AI 관련
+      case 'createTtoriSession':
+        result = createTtoriSession(data.studentName, data.studentNumber, data.step);
+        break;
+      case 'getTtoriSessions':
+        result = getTtoriSessions(data.studentName, data.studentNumber, data.step);
+        break;
+      case 'loadTtoriSession':
+        result = loadTtoriSession(data.sessionId);
+        break;
+      case 'deleteTtoriSession':
+        result = deleteTtoriSession(data.sessionId);
+        break;
+      case 'sendMessageToTtori':
+        result = sendMessageToTtori(data.sessionId, data.message, data.workContext);
+        break;
+      case 'getAiSettings':
+        result = { success: true, data: getAiSettings() };
+        break;
+      case 'saveAiSettings':
+        result = saveAiSettings(data.settings);
+        break;
+      case 'testAiApiKey':
+        result = testAiApiKey(data.apiKey);
+        break;
+      case 'getAiUsageStats':
+        result = getAiUsageStats();
+        break;
+      case 'checkAiEnabled':
+        const aiSettings = getAiSettings();
+        result = { success: true, enabled: aiSettings.aiEnabled, hasApiKey: !!aiSettings.aiApiKey };
         break;
 
       default:
@@ -281,6 +332,9 @@ function initializeSpreadsheet() {
     }
     setupSheet(teachersSheet, TEACHER_HEADERS);
 
+    // 7. AI_SESSIONS 시트 (또리 AI용)
+    initializeAiSessionsSheet();
+
     // 기본 설정값 저장
     initializeSettings(settingsSheet);
 
@@ -359,6 +413,7 @@ function initializeSettings(sheet) {
 function getSystemInfo() {
   const settings = getSettings();
   const students = getAllStudents();
+  const adminName = getAdminName(); // TEACHERS 시트에서 관리자 이름 조회
 
   const activeCount = students.data ? students.data.filter(s => s.status === 'active').length : 0;
   const pendingCount = students.data ? students.data.filter(s => s.status === 'pending').length : 0;
@@ -366,7 +421,7 @@ function getSystemInfo() {
   return {
     success: true,
     version: VERSION,
-    teacherName: settings.teacherName || '',
+    teacherName: adminName, // TEACHERS 시트의 admin 이름 사용
     schoolName: settings.schoolName || '',
     className: settings.className || '',
     totalStudents: students.data ? students.data.length : 0,
@@ -380,10 +435,10 @@ function getSystemInfo() {
  * 첫 설정인지 확인
  */
 function isFirstSetup() {
-  const settings = getSettings();
+  const adminName = getAdminName(); // TEACHERS 시트에서 관리자 이름 조회
   return {
     success: true,
-    isFirstSetup: !settings.teacherName || settings.teacherName === ''
+    isFirstSetup: !adminName || adminName === '' || adminName === '관리자' // 기본값 '관리자'도 미설정으로 간주
   };
 }
 

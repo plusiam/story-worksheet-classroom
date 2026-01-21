@@ -1,6 +1,6 @@
 <script>
   /* ============================================
-     교사 로그인 화면 (다중 교사 지원)
+     교사 로그인 화면 (Google OAuth 인증)
      ============================================ */
 
   /**
@@ -8,9 +8,7 @@
    */
   function renderTeacherLogin(container, data = {}) {
     const settings = AppState.settings || {};
-    const isFirstSetup = data.isFirstSetup;
-    const hasPin = data.hasPin;
-    const mode = data.mode || 'login'; // 'login', 'register', 'pending'
+    const mode = data.mode || 'login'; // 'login', 'pending', 'not-registered'
 
     container.innerHTML = `
       <div class="container-narrow fade-in" role="main" aria-label="교사 로그인 페이지">
@@ -27,7 +25,7 @@
         </header>
 
         <div class="card slide-up" role="region" aria-label="교사 로그인 영역">
-          ${renderTeacherAuthContent(mode, isFirstSetup, hasPin, settings)}
+          ${renderTeacherAuthContent(mode, data)}
         </div>
 
         <nav class="text-center mt-3" aria-label="페이지 내비게이션">
@@ -40,146 +38,95 @@
       </div>
     `;
 
-    // 입력 설정
-    setTimeout(() => {
-      if (mode === 'login') {
-        setupTeacherEmailLogin();
-      } else if (mode === 'register') {
-        setupTeacherRegister();
-      }
-    }, 100);
+    // 자동 로그인 시도
+    if (mode === 'login') {
+      setTimeout(() => autoLoginWithGoogle(), 100);
+    }
   }
 
   /**
    * 교사 인증 콘텐츠 렌더링
    */
-  function renderTeacherAuthContent(mode, isFirstSetup, hasPin, settings) {
+  function renderTeacherAuthContent(mode, data) {
     if (mode === 'pending') {
-      return renderPendingApproval();
+      return renderPendingApproval(data.email);
     }
 
-    if (mode === 'register') {
-      return renderRegisterForm();
+    if (mode === 'not-registered') {
+      return renderNotRegistered(data.email);
     }
 
-    // 기본: 로그인 폼
-    return renderEmailLoginForm(settings);
+    if (mode === 'error') {
+      return renderLoginError(data.error);
+    }
+
+    // 기본: Google 로그인 화면
+    return renderGoogleLoginForm();
   }
 
   /**
-   * 이메일/비밀번호 로그인 폼
+   * Google OAuth 로그인 폼
    */
-  function renderEmailLoginForm(settings) {
+  function renderGoogleLoginForm() {
     return `
       <div class="text-center" role="form" aria-labelledby="login-title">
         <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">👩‍🏫</div>
         <h2 id="login-title">교사 로그인</h2>
-        <p style="color: var(--text-light); margin-bottom: 24px;" id="login-description">
-          이메일과 비밀번호를 입력해주세요
+        <p style="color: var(--text-light); margin-bottom: 24px;">
+          Google 계정으로 로그인합니다
         </p>
 
-        <form id="teacher-login-form" onsubmit="submitTeacherEmailLogin(event)">
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="teacher-email">이메일</label>
-            <input type="email" id="teacher-email" class="form-input"
-                   placeholder="example@school.edu" required
-                   style="font-size: 1rem; padding: 12px;">
-          </div>
+        <div id="login-status" style="padding: 20px;">
+          <div class="loading-spinner" style="margin: 0 auto 16px;"></div>
+          <p style="color: var(--text-light);">Google 계정 확인 중...</p>
+        </div>
 
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="teacher-password">비밀번호</label>
-            <input type="password" id="teacher-password" class="form-input"
-                   placeholder="비밀번호 입력" required minlength="6"
-                   style="font-size: 1rem; padding: 12px;">
-          </div>
+        <div id="login-error" class="alert alert-error" style="display: none;" role="alert"></div>
 
-          <div id="login-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
-
-          <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">
-            로그인
-          </button>
-        </form>
-
-        <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
-          <p style="color: var(--text-light); font-size: 0.9rem; margin-bottom: 12px;">
-            계정이 없으신가요?
-          </p>
-          <button class="btn btn-outline btn-block" onclick="showTeacherRegister()">
-            교사 계정 신청하기
+        <div id="login-actions" style="display: none;">
+          <button onclick="retryGoogleLogin()" class="btn btn-primary btn-lg btn-block">
+            🔄 다시 시도
           </button>
         </div>
 
-        <p class="mt-3" style="color: var(--text-light); font-size: 0.8rem;">
-          💡 첫 교사는 자동으로 관리자가 됩니다.<br>
-          이후 교사는 관리자 승인이 필요합니다.
-        </p>
+        <div class="card" style="background: var(--info-light); margin-top: 24px; text-align: left;">
+          <p style="font-size: 0.85rem; color: var(--info-dark); margin: 0;">
+            ℹ️ <strong>안내</strong><br>
+            • TEACHERS 시트에 등록된 Google 계정만 로그인 가능합니다.<br>
+            • 첫 스프레드시트 소유자는 자동으로 관리자가 됩니다.<br>
+            • 추가 교사는 관리자가 직접 등록해야 합니다.
+          </p>
+        </div>
       </div>
     `;
   }
 
   /**
-   * 교사 회원가입 폼
+   * 미등록 계정 화면
    */
-  function renderRegisterForm() {
+  function renderNotRegistered(email) {
     return `
-      <div class="text-center" role="form" aria-labelledby="register-title">
-        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">✨</div>
-        <h2 id="register-title">교사 계정 신청</h2>
-        <p style="color: var(--text-light); margin-bottom: 24px;" id="register-description">
-          계정 정보를 입력해주세요
+      <div class="text-center" role="status" aria-labelledby="not-registered-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">🚫</div>
+        <h2 id="not-registered-title">등록되지 않은 계정</h2>
+        <p style="color: var(--text-light); margin-bottom: 16px;">
+          현재 로그인된 Google 계정:
+        </p>
+        <p style="font-weight: 600; color: var(--primary); margin-bottom: 24px;">
+          ${escapeHtml(email || '알 수 없음')}
         </p>
 
-        <form id="teacher-register-form" onsubmit="submitTeacherRegister(event)">
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="register-email">이메일 *</label>
-            <input type="email" id="register-email" class="form-input"
-                   placeholder="example@school.edu" required
-                   style="font-size: 1rem; padding: 12px;">
-          </div>
-
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="register-name">이름 *</label>
-            <input type="text" id="register-name" class="form-input"
-                   placeholder="홍길동" required
-                   style="font-size: 1rem; padding: 12px;">
-          </div>
-
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="register-password">비밀번호 *</label>
-            <input type="password" id="register-password" class="form-input"
-                   placeholder="6자리 이상" required minlength="6"
-                   style="font-size: 1rem; padding: 12px;">
-            <small style="color: var(--text-light);">영문, 숫자 포함 6자리 이상</small>
-          </div>
-
-          <div class="form-group" style="text-align: left;">
-            <label class="form-label" for="register-password-confirm">비밀번호 확인 *</label>
-            <input type="password" id="register-password-confirm" class="form-input"
-                   placeholder="비밀번호 다시 입력" required minlength="6"
-                   style="font-size: 1rem; padding: 12px;">
-          </div>
-
-          <div id="register-error" class="alert alert-error" style="display: none;" role="alert" aria-live="assertive"></div>
-
-          <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">
-            계정 신청하기
-          </button>
-        </form>
-
-        <div style="margin-top: 20px;">
-          <button class="btn btn-link" onclick="showTeacherLogin()"
-                  style="color: var(--text-light);">
-            ← 로그인으로 돌아가기
-          </button>
-        </div>
-
-        <div class="card" style="background: var(--info-light); margin-top: 16px; text-align: left;">
-          <p style="font-size: 0.85rem; color: var(--info-dark); margin: 0;">
-            ℹ️ <strong>안내</strong><br>
-            • 첫 번째 가입자는 자동으로 관리자가 됩니다.<br>
-            • 이후 가입자는 관리자의 승인 후 사용 가능합니다.
+        <div class="card" style="background: var(--warning-light); text-align: left;">
+          <p style="font-size: 0.9rem; color: var(--warning-dark); margin: 0;">
+            ⚠️ <strong>접근 불가</strong><br>
+            이 계정은 교사로 등록되지 않았습니다.<br>
+            관리자에게 교사 등록을 요청하세요.
           </p>
         </div>
+
+        <button class="btn btn-outline btn-block mt-3" onclick="backToStudentLogin()">
+          ← 학생 로그인으로 돌아가기
+        </button>
       </div>
     `;
   }
@@ -187,11 +134,14 @@
   /**
    * 승인 대기 화면
    */
-  function renderPendingApproval() {
+  function renderPendingApproval(email) {
     return `
       <div class="text-center" role="status" aria-labelledby="pending-title">
         <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">⏳</div>
         <h2 id="pending-title">승인 대기 중</h2>
+        <p style="color: var(--text-light); margin-bottom: 16px;">
+          계정: <strong>${escapeHtml(email || '')}</strong>
+        </p>
         <p style="color: var(--text-light); margin-bottom: 24px;">
           계정 승인을 기다리고 있습니다.<br>
           관리자가 승인하면 로그인할 수 있습니다.
@@ -201,90 +151,59 @@
           <p style="font-size: 0.9rem; color: var(--warning-dark); margin: 0;">
             🔔 <strong>승인 절차</strong><br>
             관리자에게 승인 요청이 전달되었습니다.<br>
-            승인 완료 시 등록하신 이메일로 로그인하세요.
+            승인 완료 후 다시 접속해주세요.
           </p>
         </div>
 
-        <button class="btn btn-outline btn-block mt-3" onclick="showTeacherLogin()">
-          로그인 화면으로
+        <button class="btn btn-outline btn-block mt-3" onclick="retryGoogleLogin()">
+          🔄 다시 확인하기
         </button>
       </div>
     `;
   }
 
   /**
-   * 이메일 로그인 폼 설정
+   * 로그인 오류 화면
    */
-  function setupTeacherEmailLogin() {
-    const emailInput = document.getElementById('teacher-email');
-    if (emailInput) {
-      emailInput.focus();
-    }
+  function renderLoginError(error) {
+    return `
+      <div class="text-center" role="alert" aria-labelledby="error-title">
+        <div style="font-size: 3rem; margin-bottom: 16px;" aria-hidden="true">❌</div>
+        <h2 id="error-title">로그인 실패</h2>
+        <p style="color: var(--danger); margin-bottom: 24px;">
+          ${escapeHtml(error || '알 수 없는 오류가 발생했습니다.')}
+        </p>
+
+        <button onclick="retryGoogleLogin()" class="btn btn-primary btn-lg btn-block">
+          🔄 다시 시도
+        </button>
+
+        <div class="card" style="background: var(--info-light); margin-top: 24px; text-align: left;">
+          <p style="font-size: 0.85rem; color: var(--info-dark); margin: 0;">
+            💡 <strong>해결 방법</strong><br>
+            • 웹앱 배포 설정에서 "나" 로 실행되는지 확인하세요.<br>
+            • 다른 Google 계정으로 로그인 되어있다면 전환해주세요.<br>
+            • 문제가 지속되면 관리자에게 문의하세요.
+          </p>
+        </div>
+      </div>
+    `;
   }
 
   /**
-   * 회원가입 폼 설정
+   * Google 계정으로 자동 로그인 시도
    */
-  function setupTeacherRegister() {
-    const emailInput = document.getElementById('register-email');
-    if (emailInput) {
-      emailInput.focus();
-    }
-  }
-
-  /**
-   * 이메일 로그인 제출
-   */
-  async function submitTeacherEmailLogin(event) {
-    event.preventDefault();
-
-    const email = document.getElementById('teacher-email').value.trim();
-    const password = document.getElementById('teacher-password').value;
+  async function autoLoginWithGoogle() {
+    const statusDiv = document.getElementById('login-status');
     const errorDiv = document.getElementById('login-error');
-
-    if (!email || !password) {
-      errorDiv.textContent = '이메일과 비밀번호를 입력해주세요.';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    errorDiv.style.display = 'none';
-    showLoading('로그인 중...');
+    const actionsDiv = document.getElementById('login-actions');
 
     try {
-      const result = await callApi('loginTeacherWithEmail', {
-        email: email,
-        password: password
-      });
+      // Google OAuth 로그인 시도
+      const result = await callApi('loginTeacherWithGoogle', {});
 
       if (result.success) {
-        // 승인 대기 중인 경우
-        if (result.status === 'pending') {
-          hideLoading();
-          navigateTo('teacher-login', { mode: 'pending' });
-          return;
-        }
-
-        // 거부된 경우
-        if (result.status === 'rejected') {
-          errorDiv.innerHTML = `
-            <strong>계정이 거부되었습니다.</strong><br>
-            ${result.rejectionReason || '관리자에게 문의하세요.'}
-          `;
-          errorDiv.style.display = 'block';
-          hideLoading();
-          return;
-        }
-
-        // 정지된 경우
-        if (result.status === 'suspended') {
-          errorDiv.textContent = '계정이 정지되었습니다. 관리자에게 문의하세요.';
-          errorDiv.style.display = 'block';
-          hideLoading();
-          return;
-        }
-
-        // 정상 로그인
+        // 로그인 성공
         AppState.teacherToken = result.teacherToken;
         AppState.teacherEmail = result.email;
         AppState.teacherName = result.name;
@@ -296,125 +215,39 @@
         sessionStorage.setItem('teacherRole', result.role);
 
         showToast(`${result.name || '선생님'}, 환영합니다!`, 'success');
-
-        // 관리자면 대시보드로, 아니면 학생 관리로
         navigateTo('teacher-dashboard');
       } else {
-        errorDiv.textContent = result.error || '로그인에 실패했습니다.';
-        errorDiv.style.display = 'block';
-      }
-    } catch (error) {
-      console.error('로그인 오류:', error);
-      errorDiv.textContent = '오류가 발생했습니다.';
-      errorDiv.style.display = 'block';
-    } finally {
-      hideLoading();
-    }
-  }
-
-  /**
-   * 교사 회원가입 제출
-   */
-  async function submitTeacherRegister(event) {
-    event.preventDefault();
-
-    const email = document.getElementById('register-email').value.trim();
-    const name = document.getElementById('register-name').value.trim();
-    const password = document.getElementById('register-password').value;
-    const passwordConfirm = document.getElementById('register-password-confirm').value;
-    const errorDiv = document.getElementById('register-error');
-
-    // 유효성 검사
-    if (!email || !name || !password) {
-      errorDiv.textContent = '모든 필수 항목을 입력해주세요.';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    if (password.length < 6) {
-      errorDiv.textContent = '비밀번호는 6자리 이상이어야 합니다.';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    if (password !== passwordConfirm) {
-      errorDiv.textContent = '비밀번호가 일치하지 않습니다.';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    // 이메일 형식 검사
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      errorDiv.textContent = '올바른 이메일 형식이 아닙니다.';
-      errorDiv.style.display = 'block';
-      return;
-    }
-
-    errorDiv.style.display = 'none';
-    showLoading('계정 신청 중...');
-
-    try {
-      const result = await callApi('registerTeacher', {
-        email: email,
-        name: name,
-        password: password
-      });
-
-      if (result.success) {
-        if (result.isFirstTeacher) {
-          // 첫 교사 - 바로 관리자로 로그인
-          showToast('🎉 관리자 계정이 생성되었습니다!', 'success');
-
-          // 자동 로그인
-          const loginResult = await callApi('loginTeacherWithEmail', {
-            email: email,
-            password: password
-          });
-
-          if (loginResult.success) {
-            AppState.teacherToken = loginResult.teacherToken;
-            AppState.teacherEmail = loginResult.email;
-            AppState.teacherName = loginResult.name;
-            AppState.teacherRole = loginResult.role;
-            AppState.isTeacher = true;
-
-            sessionStorage.setItem('teacherToken', loginResult.teacherToken);
-            sessionStorage.setItem('teacherEmail', loginResult.email);
-            sessionStorage.setItem('teacherRole', loginResult.role);
-
-            navigateTo('teacher-dashboard');
-          }
+        // 로그인 실패
+        if (result.status === 'pending') {
+          navigateTo('teacher-login', { mode: 'pending', email: result.email });
+        } else if (result.error && result.error.includes('등록되지 않은')) {
+          navigateTo('teacher-login', { mode: 'not-registered', email: result.email });
         } else {
-          // 일반 교사 - 승인 대기
-          showToast('계정 신청이 완료되었습니다!', 'success');
-          navigateTo('teacher-login', { mode: 'pending' });
+          // 일반 오류
+          if (statusDiv) statusDiv.style.display = 'none';
+          if (errorDiv) {
+            errorDiv.textContent = result.error || '로그인에 실패했습니다.';
+            errorDiv.style.display = 'block';
+          }
+          if (actionsDiv) actionsDiv.style.display = 'block';
         }
-      } else {
-        errorDiv.textContent = result.error || '계정 신청에 실패했습니다.';
-        errorDiv.style.display = 'block';
       }
     } catch (error) {
-      console.error('회원가입 오류:', error);
-      errorDiv.textContent = '오류가 발생했습니다.';
-      errorDiv.style.display = 'block';
-    } finally {
-      hideLoading();
+      console.error('Google 로그인 오류:', error);
+      if (statusDiv) statusDiv.style.display = 'none';
+      if (errorDiv) {
+        errorDiv.textContent = '로그인 중 오류가 발생했습니다.';
+        errorDiv.style.display = 'block';
+      }
+      if (actionsDiv) actionsDiv.style.display = 'block';
     }
   }
 
   /**
-   * 로그인 화면 표시
+   * Google 로그인 재시도
    */
-  function showTeacherLogin() {
+  function retryGoogleLogin() {
     navigateTo('teacher-login', { mode: 'login' });
-  }
-
-  /**
-   * 회원가입 화면 표시
-   */
-  function showTeacherRegister() {
-    navigateTo('teacher-login', { mode: 'register' });
   }
 
   /**
@@ -426,7 +259,7 @@
   }
 
   /**
-   * 교사 로그인 화면 표시 (조건 확인)
+   * 교사 로그인 화면 표시 (세션 확인)
    */
   async function checkAndShowTeacherLogin() {
     showLoading('확인 중...');
@@ -441,9 +274,8 @@
 
         if (verifyResult.success && verifyResult.valid) {
           AppState.teacherToken = savedToken;
-          AppState.teacherEmail = verifyResult.email;
-          AppState.teacherName = verifyResult.name;
-          AppState.teacherRole = verifyResult.role;
+          AppState.teacherEmail = sessionStorage.getItem('teacherEmail');
+          AppState.teacherRole = sessionStorage.getItem('teacherRole');
           AppState.isTeacher = true;
 
           navigateTo('teacher-dashboard');
@@ -456,7 +288,7 @@
         }
       }
 
-      // 로그인 화면 표시
+      // Google OAuth 로그인 시도
       navigateTo('teacher-login', { mode: 'login' });
 
     } catch (error) {
@@ -466,58 +298,5 @@
     } finally {
       hideLoading();
     }
-  }
-
-  // ============================================
-  // 레거시 호환 (기존 PIN 방식 - 삭제 예정)
-  // ============================================
-
-  /**
-   * @deprecated 이메일 로그인으로 대체됨
-   */
-  function renderFirstSetupPrompt() {
-    return renderRegisterForm();
-  }
-
-  /**
-   * @deprecated 이메일 로그인으로 대체됨
-   */
-  function renderLoginForm(hasPin, settings) {
-    return renderEmailLoginForm(settings);
-  }
-
-  /**
-   * @deprecated
-   */
-  function setupTeacherPinInput() {
-    // PIN 방식 더 이상 사용 안함
-  }
-
-  /**
-   * @deprecated
-   */
-  function getTeacherPinValue(containerId) {
-    return '';
-  }
-
-  /**
-   * @deprecated
-   */
-  async function submitNewTeacherPin() {
-    showToast('PIN 방식은 더 이상 지원되지 않습니다. 이메일로 로그인해주세요.', 'info');
-  }
-
-  /**
-   * @deprecated
-   */
-  async function submitTeacherLogin() {
-    showToast('PIN 방식은 더 이상 지원되지 않습니다. 이메일로 로그인해주세요.', 'info');
-  }
-
-  /**
-   * @deprecated
-   */
-  function clearTeacherPinInput(containerId) {
-    // 더 이상 사용 안함
   }
 </script>

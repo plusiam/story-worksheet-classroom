@@ -1,0 +1,371 @@
+<script>
+  /* ============================================
+     또리 AI 설정 화면 (교사용)
+     ============================================ */
+
+  let aiSettingsData = {
+    aiEnabled: false,
+    aiApiKey: '',
+    dailyLimitPerStudent: 10,
+    maxMessagesPerSession: 20,
+    maxSessionsPerWork: 3,
+    allowedHours: 'always'
+  };
+
+  /**
+   * 또리 설정 화면 렌더링
+   */
+  async function renderTtoriSettings(container) {
+    // 현재 설정 로드
+    try {
+      const result = await callApi('getAiSettings');
+      if (result.success) {
+        aiSettingsData = result.data;
+      }
+    } catch (error) {
+      console.error('AI 설정 로드 실패:', error);
+    }
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderTeacherHeader('AI 도우미 설정', 'ttori-settings')}
+
+        <!-- 안내 카드 -->
+        <div class="card mb-3" style="background: linear-gradient(135deg, #fff9e6 0%, #fff3cd 100%); border-left: 4px solid #FFD93D;">
+          <div class="flex gap-3 items-start">
+            <span style="font-size: 2.5rem;">🐤</span>
+            <div>
+              <h3 style="margin: 0 0 8px 0;">또리 AI 도우미</h3>
+              <p style="margin: 0; color: var(--text-light);">
+                "또리"는 학생들이 스토리를 만들 때 도움을 주는 AI 도우미예요.<br>
+                <strong>설정하지 않아도 모든 핵심 기능을 사용할 수 있습니다.</strong>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 활성화 토글 -->
+        <div class="card mb-3">
+          <div class="flex justify-between items-center">
+            <div>
+              <h4 style="margin: 0;">AI 도우미 사용</h4>
+              <p style="margin: 4px 0 0 0; color: var(--text-light); font-size: 0.9rem;">
+                학생들이 또리에게 도움을 요청할 수 있습니다.
+              </p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ai-enabled" ${aiSettingsData.aiEnabled ? 'checked' : ''} onchange="toggleAiEnabled()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- API 키 설정 (AI 활성화 시에만 표시) -->
+        <div id="ai-settings-detail" style="display: ${aiSettingsData.aiEnabled ? 'block' : 'none'};">
+          <!-- API 키 입력 -->
+          <div class="card mb-3">
+            <h4 style="margin: 0 0 16px 0;">🔑 Google AI API 키</h4>
+
+            <div class="form-group">
+              <div class="flex gap-2">
+                <input type="password" id="ai-api-key" class="form-input" style="flex: 1;"
+                       placeholder="API 키를 입력하세요"
+                       value="${escapeHtml(aiSettingsData.aiApiKey || '')}">
+                <button class="btn btn-outline" onclick="toggleApiKeyVisibility()">👁️</button>
+                <button class="btn btn-primary" onclick="testApiKey()">테스트</button>
+              </div>
+              <div id="api-key-status" class="mt-2"></div>
+            </div>
+
+            <!-- API 키 발급 안내 -->
+            <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin-top: 16px;">
+              <h5 style="margin: 0 0 12px 0;">📖 API 키 발급 방법 (3분이면 완료!)</h5>
+
+              <ol style="margin: 0; padding-left: 20px; color: var(--text-light);">
+                <li style="margin-bottom: 8px;">
+                  <a href="https://aistudio.google.com/apikey" target="_blank" style="color: var(--primary); font-weight: 500;">
+                    👉 Google AI Studio 접속
+                  </a>
+                </li>
+                <li style="margin-bottom: 8px;">
+                  "API 키 만들기" 버튼 클릭
+                </li>
+                <li>
+                  생성된 키를 복사해서 위에 붙여넣기
+                </li>
+              </ol>
+
+              <div style="margin-top: 12px; padding: 8px 12px; background: #e8f5e9; border-radius: 6px;">
+                <strong>💰 예상 비용:</strong> 학급당 월 100원 미만 (거의 무료!)
+              </div>
+            </div>
+          </div>
+
+          <!-- 남용 방지 설정 -->
+          <div class="card mb-3">
+            <h4 style="margin: 0 0 16px 0;">⚙️ 사용량 제한 설정</h4>
+
+            <div class="form-group">
+              <label class="form-label">학생당 일일 대화 횟수</label>
+              <select id="ai-daily-limit" class="form-input" onchange="updateAiSetting('dailyLimitPerStudent', this.value)">
+                <option value="5" ${aiSettingsData.dailyLimitPerStudent == 5 ? 'selected' : ''}>5회</option>
+                <option value="10" ${aiSettingsData.dailyLimitPerStudent == 10 ? 'selected' : ''}>10회 (권장)</option>
+                <option value="20" ${aiSettingsData.dailyLimitPerStudent == 20 ? 'selected' : ''}>20회</option>
+                <option value="30" ${aiSettingsData.dailyLimitPerStudent == 30 ? 'selected' : ''}>30회</option>
+                <option value="50" ${aiSettingsData.dailyLimitPerStudent == 50 ? 'selected' : ''}>50회</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">AI 사용 가능 시간</label>
+              <select id="ai-allowed-hours" class="form-input" onchange="updateAiSetting('allowedHours', this.value)">
+                <option value="always" ${aiSettingsData.allowedHours === 'always' ? 'selected' : ''}>항상 허용</option>
+                <option value="school" ${aiSettingsData.allowedHours === 'school' ? 'selected' : ''}>수업 시간만 (09:00~15:00)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">대화당 최대 메시지 수</label>
+              <select id="ai-max-messages" class="form-input" onchange="updateAiSetting('maxMessagesPerSession', this.value)">
+                <option value="10" ${aiSettingsData.maxMessagesPerSession == 10 ? 'selected' : ''}>10개</option>
+                <option value="20" ${aiSettingsData.maxMessagesPerSession == 20 ? 'selected' : ''}>20개 (권장)</option>
+                <option value="30" ${aiSettingsData.maxMessagesPerSession == 30 ? 'selected' : ''}>30개</option>
+                <option value="50" ${aiSettingsData.maxMessagesPerSession == 50 ? 'selected' : ''}>50개</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 사용량 통계 -->
+          <div class="card mb-3">
+            <div class="flex justify-between items-center mb-2">
+              <h4 style="margin: 0;">📊 사용량 통계</h4>
+              <button class="btn btn-sm btn-ghost" onclick="refreshAiUsageStats()">🔄 새로고침</button>
+            </div>
+            <div id="ai-usage-stats">
+              <p style="color: var(--text-light); text-align: center; padding: 20px;">
+                통계를 불러오는 중...
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 저장 버튼 -->
+        <div class="flex gap-2 justify-end">
+          <button class="btn btn-ghost" onclick="navigateTo('teacher-dashboard')">
+            ← 돌아가기
+          </button>
+          <button class="btn btn-primary" onclick="saveAiSettings()">
+            💾 설정 저장
+          </button>
+        </div>
+      </div>
+
+      <style>
+        .toggle-switch {
+          position: relative;
+          display: inline-block;
+          width: 56px;
+          height: 30px;
+        }
+
+        .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+
+        .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: 0.3s;
+          border-radius: 30px;
+        }
+
+        .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 22px;
+          width: 22px;
+          left: 4px;
+          bottom: 4px;
+          background-color: white;
+          transition: 0.3s;
+          border-radius: 50%;
+        }
+
+        input:checked + .toggle-slider {
+          background-color: #FFD93D;
+        }
+
+        input:checked + .toggle-slider:before {
+          transform: translateX(26px);
+        }
+
+        .usage-stat-card {
+          background: var(--bg);
+          padding: 16px;
+          border-radius: 8px;
+          text-align: center;
+        }
+
+        .usage-stat-value {
+          font-size: 2rem;
+          font-weight: 700;
+          color: var(--primary);
+        }
+
+        .usage-stat-label {
+          font-size: 0.85rem;
+          color: var(--text-light);
+        }
+      </style>
+    `;
+
+    // 사용량 통계 로드
+    if (aiSettingsData.aiEnabled) {
+      refreshAiUsageStats();
+    }
+  }
+
+  /**
+   * AI 활성화 토글
+   */
+  function toggleAiEnabled() {
+    const enabled = document.getElementById('ai-enabled').checked;
+    aiSettingsData.aiEnabled = enabled;
+
+    const detailSection = document.getElementById('ai-settings-detail');
+    if (detailSection) {
+      detailSection.style.display = enabled ? 'block' : 'none';
+    }
+
+    if (enabled) {
+      refreshAiUsageStats();
+    }
+  }
+
+  /**
+   * API 키 표시/숨김 토글
+   */
+  function toggleApiKeyVisibility() {
+    const input = document.getElementById('ai-api-key');
+    if (input.type === 'password') {
+      input.type = 'text';
+    } else {
+      input.type = 'password';
+    }
+  }
+
+  /**
+   * API 키 테스트
+   */
+  async function testApiKey() {
+    const apiKey = document.getElementById('ai-api-key').value.trim();
+    const statusDiv = document.getElementById('api-key-status');
+
+    if (!apiKey) {
+      statusDiv.innerHTML = '<span style="color: var(--error);">❌ API 키를 입력해주세요.</span>';
+      return;
+    }
+
+    statusDiv.innerHTML = '<span style="color: var(--text-light);">🔄 테스트 중...</span>';
+
+    try {
+      const result = await callApi('testAiApiKey', { apiKey: apiKey });
+
+      if (result.success) {
+        statusDiv.innerHTML = '<span style="color: var(--success);">✅ API 키가 유효합니다!</span>';
+        aiSettingsData.aiApiKey = apiKey;
+      } else {
+        statusDiv.innerHTML = `<span style="color: var(--error);">❌ ${result.error || 'API 키가 유효하지 않습니다.'}</span>`;
+      }
+    } catch (error) {
+      statusDiv.innerHTML = '<span style="color: var(--error);">❌ 테스트 중 오류가 발생했습니다.</span>';
+    }
+  }
+
+  /**
+   * AI 설정 값 업데이트
+   */
+  function updateAiSetting(key, value) {
+    aiSettingsData[key] = isNaN(value) ? value : parseInt(value);
+  }
+
+  /**
+   * AI 설정 저장
+   */
+  async function saveAiSettings() {
+    // API 키 값 업데이트
+    aiSettingsData.aiApiKey = document.getElementById('ai-api-key')?.value.trim() || '';
+
+    try {
+      showLoading('저장 중...');
+
+      const result = await callApi('saveAiSettings', { settings: aiSettingsData });
+
+      if (result.success) {
+        showToast('설정이 저장되었습니다!', 'success');
+      } else {
+        showToast(result.error || '저장에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      showToast('저장 중 오류가 발생했습니다.', 'error');
+    }
+  }
+
+  /**
+   * 사용량 통계 새로고침
+   */
+  async function refreshAiUsageStats() {
+    const container = document.getElementById('ai-usage-stats');
+    if (!container) return;
+
+    try {
+      const result = await callApi('getAiUsageStats');
+
+      if (result.success) {
+        const stats = result.data;
+
+        container.innerHTML = `
+          <div class="flex gap-3" style="flex-wrap: wrap;">
+            <div class="usage-stat-card" style="flex: 1; min-width: 100px;">
+              <div class="usage-stat-value">${stats.todayUsage}</div>
+              <div class="usage-stat-label">오늘 사용</div>
+            </div>
+            <div class="usage-stat-card" style="flex: 1; min-width: 100px;">
+              <div class="usage-stat-value">${stats.totalUsage}</div>
+              <div class="usage-stat-label">총 사용</div>
+            </div>
+            <div class="usage-stat-card" style="flex: 1; min-width: 100px;">
+              <div class="usage-stat-value">${stats.students.length}</div>
+              <div class="usage-stat-label">사용 학생</div>
+            </div>
+          </div>
+
+          ${stats.students.length > 0 ? `
+            <div style="margin-top: 16px;">
+              <h5 style="margin: 0 0 8px 0;">학생별 사용량 (오늘)</h5>
+              <div style="max-height: 200px; overflow-y: auto;">
+                ${stats.students.slice(0, 10).map(s => `
+                  <div class="flex justify-between items-center" style="padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 4px;">
+                    <span>${escapeHtml(s.name)}</span>
+                    <span style="font-weight: 600;">${s.today}회</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        `;
+      } else {
+        container.innerHTML = '<p style="color: var(--error);">통계를 불러오지 못했습니다.</p>';
+      }
+    } catch (error) {
+      container.innerHTML = '<p style="color: var(--error);">통계를 불러오지 못했습니다.</p>';
+    }
+  }
+</script>

@@ -3,20 +3,25 @@
      라우터 - 학급 모드 전용
      ============================================ */
 
-  const routes = {
-    'landing': renderLandingPage,
-    'login': renderStudentLogin,
-    'pin-setup': renderStudentPinSetup,
-    'student-main': renderStudentMain,
-    'story-creator': renderStoryCreator,
-    'teacher-login': renderTeacherLogin,
-    'teacher-setup': renderTeacherSetupWizard,
-    'teacher-dashboard': renderTeacherDashboard,
-    'teacher-students': renderTeacherStudents,
-    'teacher-qr': renderTeacherQR,
-    'teacher-settings': renderTeacherSettings,
-    'teacher-manage': renderTeacherManage
-  };
+  // 라우트 맵 (함수 참조를 문자열로 저장하여 lazy evaluation)
+  function getRouteHandler(route) {
+    const routeMap = {
+      'landing': renderLandingPage,
+      'login': renderStudentLogin,
+      'pin-setup': renderStudentPinSetup,
+      'student-main': renderStudentMain,
+      'story-creator': renderStoryCreator,
+      'teacher-login': renderTeacherLogin,
+      'teacher-setup': renderTeacherSetupWizard,
+      'teacher-dashboard': renderTeacherDashboard,
+      'teacher-students': renderTeacherStudents,
+      'teacher-qr': renderTeacherQR,
+      'teacher-settings': renderTeacherSettings,
+      'teacher-manage': renderTeacherManage,
+      'ttori-settings': renderTtoriSettings
+    };
+    return routeMap[route];
+  }
 
   /* ============================================
      앱 초기화
@@ -90,7 +95,7 @@
     AppState.currentRoute = route;
 
     const app = document.getElementById('app');
-    const renderFn = routes[route];
+    const renderFn = getRouteHandler(route);
 
     if (renderFn) {
       app.innerHTML = '';

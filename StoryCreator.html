@@ -69,6 +69,11 @@
         </div>
       </div>
 
+      <!-- 또리 AI 호출 버튼 (플로팅) -->
+      <button class="ttori-fab" id="ttori-fab" onclick="toggleTtoriPanel()" title="또리에게 물어보기">
+        🐤
+      </button>
+
       <style>
         .story-panels {
           display: grid;
@@ -367,4 +372,51 @@
       showToast('내보내기 중 오류가 발생했습니다.', 'error');
     }
   }
+
+  /**
+   * 현재 스토리 데이터 가져오기 (또리 AI용)
+   */
+  function getCurrentStoryData() {
+    // 현재 입력된 데이터 수집
+    const title = document.getElementById('story-title')?.value.trim() || '';
+
+    const panels = storyData.workData.panels.map((panel, index) => {
+      const descEl = document.getElementById(`panel-desc-${panel.id}`);
+      const dialogueEl = document.getElementById(`panel-dialogue-${panel.id}`);
+
+      return {
+        id: panel.id,
+        stage: panel.stage,
+        stageName: panel.stageName,
+        content: descEl?.value || panel.description || '',
+        dialogue: dialogueEl?.value || panel.dialogue || ''
+      };
+    });
+
+    return {
+      title: title,
+      step: storyData.step,
+      panels: panels,
+      studentName: storyData.studentName,
+      studentNumber: storyData.studentNumber
+    };
+  }
+
+  /**
+   * 또리 AI 패널 활성화 여부 확인
+   */
+  async function checkTtoriFabVisibility() {
+    try {
+      const result = await callApi('checkAiEnabled');
+      const fab = document.getElementById('ttori-fab');
+      if (fab) {
+        fab.style.display = result.enabled ? 'flex' : 'none';
+      }
+    } catch (error) {
+      console.log('또리 FAB 확인 실패:', error);
+    }
+  }
+
+  // 페이지 로드 시 또리 FAB 표시 여부 확인
+  document.addEventListener('DOMContentLoaded', checkTtoriFabVisibility);
 </script>
