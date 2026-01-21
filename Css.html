@@ -730,21 +730,24 @@
     }
   }
 
-  /* Skip to content 링크 */
+  /* Skip to content 링크 - 웹 접근성용 (스크린 리더 사용자를 위한 스킵 내비게이션) */
   .skip-link {
     position: absolute;
-    top: -40px;
-    left: 0;
+    top: -9999px;
+    left: -9999px;
     background: var(--primary);
     color: white;
     padding: 8px 16px;
     z-index: 10001;
     text-decoration: none;
     font-weight: 500;
+    opacity: 0;
   }
 
   .skip-link:focus {
     top: 0;
+    left: 0;
+    opacity: 1;
   }
 
   /* ============================================
