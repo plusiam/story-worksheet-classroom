@@ -104,9 +104,7 @@ function doPost(e) {
       case 'loginTeacherWithGoogle':
         result = loginTeacherWithGoogle();
         break;
-      case 'checkGoogleAuth':
-        result = checkGoogleAuth();
-        break;
+      // checkGoogleAuth는 위(87-89행)에서 이미 처리됨
       case 'approveTeacher':
         result = approveTeacher(data.email, data.adminEmail);
         break;

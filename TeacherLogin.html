@@ -192,6 +192,7 @@
 
   /**
    * Google 계정으로 자동 로그인 시도
+   * 점조직 모델: 개별 GAS의 Google OAuth 활용
    */
   async function autoLoginWithGoogle() {
     const statusDiv = document.getElementById('login-status');
@@ -203,19 +204,33 @@
       const result = await callApi('loginTeacherWithGoogle', {});
 
       if (result.success) {
-        // 로그인 성공
+        // 로그인 성공 - AppState에 먼저 저장
         AppState.teacherToken = result.teacherToken;
         AppState.teacherEmail = result.email;
-        AppState.teacherName = result.name;
-        AppState.teacherRole = result.role;
+        AppState.teacherName = result.name || '';
+        AppState.teacherRole = result.role || 'teacher';
         AppState.isTeacher = true;
+        AppState.isAdmin = result.isAdmin || false;
 
-        sessionStorage.setItem('teacherToken', result.teacherToken);
-        sessionStorage.setItem('teacherEmail', result.email);
-        sessionStorage.setItem('teacherRole', result.role);
+        // sessionStorage에 저장 (레이스 컨디션 방지를 위해 동기적으로 저장 완료 확인)
+        try {
+          sessionStorage.setItem('teacherToken', result.teacherToken);
+          sessionStorage.setItem('teacherEmail', result.email);
+          sessionStorage.setItem('teacherRole', result.role || 'teacher');
+          sessionStorage.setItem('teacherName', result.name || '');
+          sessionStorage.setItem('isAdmin', result.isAdmin ? 'true' : 'false');
+        } catch (storageError) {
+          console.warn('sessionStorage 저장 실패:', storageError);
+          // 저장 실패해도 AppState에는 있으므로 계속 진행
+        }
 
         showToast(`${result.name || '선생님'}, 환영합니다!`, 'success');
-        navigateTo('teacher-dashboard');
+
+        // 세션 저장 완료 후 약간의 딜레이를 주고 화면 전환
+        // (브라우저가 sessionStorage를 완전히 커밋할 시간 확보)
+        setTimeout(() => {
+          navigateTo('teacher-dashboard');
+        }, 50);
       } else {
         // 로그인 실패
         if (result.status === 'pending') {

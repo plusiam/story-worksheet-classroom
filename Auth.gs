@@ -407,11 +407,33 @@ function verifyTeacherSession(teacherToken) {
 
 /**
  * Google 계정 기반 교사 권한 확인
+ * 점조직 모델: 각 교사의 독립 GAS에서 실행됨
  * @returns {object} { success, isAuthorized, email?, teacher? }
  */
 function checkGoogleAuth() {
   try {
-    const currentUser = Session.getActiveUser();
+    // Session.getActiveUser()는 GAS 환경에서만 작동
+    // 웹앱 배포 시 "웹앱에 액세스하는 사용자"로 설정 필요
+    let currentUser;
+    try {
+      currentUser = Session.getActiveUser();
+    } catch (sessionError) {
+      return {
+        success: true,
+        isAuthorized: false,
+        reason: 'GAS 세션을 가져올 수 없습니다. 웹앱으로 접근해주세요.',
+        debugInfo: sessionError.message
+      };
+    }
+
+    if (!currentUser) {
+      return {
+        success: true,
+        isAuthorized: false,
+        reason: '사용자 세션이 없습니다. 다시 로그인해주세요.'
+      };
+    }
+
     const email = currentUser.getEmail();
 
     // 이메일이 없으면 (배포 설정에 따라 다름)
@@ -419,7 +441,8 @@ function checkGoogleAuth() {
       return {
         success: true,
         isAuthorized: false,
-        reason: 'Google 계정 정보를 가져올 수 없습니다. 웹앱 배포 설정을 확인해주세요.'
+        reason: 'Google 계정 정보를 가져올 수 없습니다. 웹앱 배포 설정을 확인해주세요.',
+        hint: '웹앱 배포 시 "다음 사용자 인증 정보로 실행: 나" + "액세스 권한: 모든 사용자"로 설정하세요.'
       };
     }
 
@@ -479,6 +502,7 @@ function checkGoogleAuth() {
 
 /**
  * Google OAuth로 교사 로그인
+ * 점조직 모델: 각 교사의 GAS에서 Google 인증 처리
  * @returns {object} { success, teacher?, error? }
  */
 function loginTeacherWithGoogle() {
@@ -489,6 +513,16 @@ function loginTeacherWithGoogle() {
       success: false,
       error: authResult.reason || '로그인 실패',
       status: authResult.status,
+      email: authResult.email,
+      hint: authResult.hint || null
+    };
+  }
+
+  // teacher 객체 null 체크 (방어적 프로그래밍)
+  if (!authResult.teacher) {
+    return {
+      success: false,
+      error: '교사 정보를 가져올 수 없습니다.',
       email: authResult.email
     };
   }
@@ -503,10 +537,10 @@ function loginTeacherWithGoogle() {
   return {
     success: true,
     teacherToken: teacherToken,
-    name: authResult.teacher.name,
+    name: authResult.teacher.name || '',
     email: authResult.email,
-    role: authResult.teacher.role,
-    isAdmin: authResult.isAdmin
+    role: authResult.teacher.role || 'teacher',
+    isAdmin: authResult.isAdmin || false
   };
 }
 
