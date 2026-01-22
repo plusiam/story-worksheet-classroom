@@ -1,0 +1,1219 @@
+<script>
+  /* ============================================
+     스토리 크리에이터 - STEP 3: 내 그림으로 완성하기
+     - Step 2의 장면들에 이미지를 추가하여 스토리보드 완성
+     - AI 그림 힌트 제공 (기존 Gemini API 활용)
+     - 이미지 업로드 (카메라/갤러리)
+     - 이미지 크롭/회전 기능
+     - PDF 내보내기
+     ============================================ */
+
+  // 상수 정의
+  const STEP3_AUTO_SAVE_INTERVAL_MS = 30000;
+  const MAX_IMAGE_SIZE_MB = 5;
+  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+  let step3Data = {
+    studentName: '',
+    studentNumber: 0,
+    title: '',
+    scenes: [],        // Step 2에서 가져온 장면들
+    sceneImages: {}    // { sceneId: { imageData, uploadType, uploadedAt } }
+  };
+
+  // 현재 선택된 장면
+  let selectedSceneIndex = 0;
+
+  // 저장 중 플래그
+  let isSavingStep3 = false;
+
+  // 이미지 편집 상태
+  let imageEditState = {
+    sceneId: null,
+    originalImage: null,
+    rotation: 0,
+    cropData: null
+  };
+
+  async function renderStoryCreatorStep3(container, data) {
+    step3Data.studentName = data?.studentName || AppState.currentUser?.name;
+    step3Data.studentNumber = data?.studentNumber || AppState.currentUser?.number;
+
+    // Step 2 데이터 로드
+    try {
+      showLoading('Step 2 데이터 불러오는 중...');
+      const step2Result = await callApi('getWork', {
+        studentName: step3Data.studentName,
+        studentNumber: step3Data.studentNumber,
+        step: 2
+      });
+
+      if (step2Result.success && step2Result.data) {
+        step3Data.scenes = step2Result.data.workData?.scenes || [];
+        step3Data.title = step2Result.data.workData?.title || '';
+      } else {
+        hideLoading();
+        showToast('Step 2 데이터를 찾을 수 없습니다. 먼저 Step 2를 완료해주세요.', 'error');
+        navigateTo('student-main');
+        return;
+      }
+    } catch (error) {
+      console.error('Step 2 로드 실패:', error);
+      hideLoading();
+      showToast('데이터 로드 실패', 'error');
+      navigateTo('student-main');
+      return;
+    } finally {
+      hideLoading();
+    }
+
+    // 기존 Step 3 데이터가 있는지 확인
+    if (data?.existingWork?.workData?.sceneImages) {
+      step3Data.sceneImages = data.existingWork.workData.sceneImages;
+    }
+
+    renderStep3UI(container);
+  }
+
+  function renderStep3UI(container) {
+    const completedCount = Object.keys(step3Data.sceneImages).filter(
+      id => step3Data.sceneImages[id]?.imageData
+    ).length;
+    const totalCount = step3Data.scenes.length;
+    const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    container.innerHTML = `
+      <div class="container fade-in">
+        ${renderStudentHeader('STEP 3: 내 그림으로 완성하기')}
+
+        <!-- 안내 카드 -->
+        <div class="card mb-3" style="background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%);">
+          <div class="flex items-center gap-3">
+            <span style="font-size: 2rem;">🎨</span>
+            <div>
+              <h3 style="margin: 0 0 4px 0;">직접 그린 그림이나 사진으로 이야기를 완성해보세요!</h3>
+              <p style="margin: 0; color: var(--text-light); font-size: 0.9rem;">
+                각 장면에 어울리는 그림을 그리거나 사진을 찍어서 추가할 수 있어요.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 진행 상황 -->
+        <div class="card mb-3">
+          <div class="flex justify-between items-center mb-2">
+            <div>
+              <h3 style="margin: 0;">📖 ${escapeHtml(step3Data.title)}</h3>
+              <span class="badge" style="background: var(--primary-light); color: var(--primary); margin-top: 4px;">
+                ${completedCount}/${totalCount} 장면 완성
+              </span>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-outline" id="btn-save-step3" onclick="saveStep3(false)">
+                💾 저장하기
+              </button>
+              <button class="btn btn-primary" id="btn-submit-step3" onclick="saveStep3(true)">
+                📮 제출하기
+              </button>
+            </div>
+          </div>
+
+          <!-- 진행률 바 -->
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" style="width: ${progressPercent}%;"></div>
+          </div>
+          <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
+            완성도 ${progressPercent}%
+          </p>
+        </div>
+
+        <!-- 장면 썸네일 네비게이션 -->
+        <div class="scene-thumbnails mb-3" id="scene-thumbnails">
+          ${renderSceneThumbnails()}
+        </div>
+
+        <!-- 선택된 장면 편집 영역 -->
+        <div class="card" id="scene-editor">
+          ${renderSceneEditor()}
+        </div>
+
+        <!-- 하단 버튼 -->
+        <div class="flex justify-between mt-3">
+          <button class="btn btn-ghost" onclick="confirmExitStep3()">
+            ← 돌아가기
+          </button>
+          <div class="flex gap-2">
+            <button class="btn btn-outline" onclick="previewStoryboard()">
+              👁️ 미리보기
+            </button>
+            <button class="btn btn-secondary" onclick="exportToPDF()">
+              📄 PDF 저장
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 숨겨진 파일 입력 -->
+      <input type="file" id="image-file-input" accept="image/*" style="display: none;" onchange="handleFileSelect(event)">
+      <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="handleFileSelect(event)">
+
+      <style>
+        .progress-bar-container {
+          height: 8px;
+          background: var(--border);
+          border-radius: 4px;
+          overflow: hidden;
+        }
+
+        .progress-bar-fill {
+          height: 100%;
+          background: linear-gradient(90deg, var(--primary), var(--success));
+          border-radius: 4px;
+          transition: width 0.3s ease;
+        }
+
+        .scene-thumbnails {
+          display: flex;
+          gap: 12px;
+          overflow-x: auto;
+          padding: 8px 4px;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .scene-thumb {
+          flex-shrink: 0;
+          width: 100px;
+          cursor: pointer;
+          transition: transform 0.2s;
+        }
+
+        .scene-thumb:hover {
+          transform: translateY(-4px);
+        }
+
+        .scene-thumb.active {
+          transform: translateY(-4px);
+        }
+
+        .scene-thumb-inner {
+          width: 100px;
+          height: 80px;
+          border-radius: 8px;
+          border: 3px solid var(--border);
+          background: var(--bg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .scene-thumb.active .scene-thumb-inner {
+          border-color: var(--primary);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .scene-thumb.completed .scene-thumb-inner {
+          border-color: var(--success);
+        }
+
+        .scene-thumb-inner img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .scene-thumb-placeholder {
+          font-size: 1.5rem;
+          color: var(--text-muted);
+        }
+
+        .scene-thumb-label {
+          text-align: center;
+          font-size: 0.75rem;
+          margin-top: 4px;
+          color: var(--text-light);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .scene-thumb-number {
+          position: absolute;
+          top: 4px;
+          left: 4px;
+          width: 20px;
+          height: 20px;
+          background: var(--primary);
+          color: white;
+          border-radius: 50%;
+          font-size: 0.7rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+        }
+
+        .scene-thumb.completed .scene-thumb-number {
+          background: var(--success);
+        }
+
+        .scene-editor-content {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+          .scene-editor-content {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .scene-image-area {
+          background: var(--bg);
+          border-radius: 12px;
+          min-height: 300px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          border: 3px dashed var(--border);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .scene-image-area.has-image {
+          border-style: solid;
+          border-color: var(--success);
+        }
+
+        .scene-image-area img {
+          max-width: 100%;
+          max-height: 300px;
+          object-fit: contain;
+        }
+
+        .image-upload-options {
+          display: flex;
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .upload-option-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          padding: 16px 24px;
+          background: white;
+          border: 2px solid var(--border);
+          border-radius: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .upload-option-btn:hover {
+          border-color: var(--primary);
+          background: var(--primary-light);
+          transform: translateY(-2px);
+        }
+
+        .upload-option-btn .icon {
+          font-size: 2rem;
+        }
+
+        .upload-option-btn .label {
+          font-size: 0.9rem;
+          font-weight: 500;
+        }
+
+        .scene-description-area {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .scene-description-box {
+          background: var(--bg);
+          padding: 16px;
+          border-radius: 8px;
+          margin-bottom: 16px;
+        }
+
+        .scene-description-box h4 {
+          margin: 0 0 8px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .scene-description-box p {
+          margin: 0;
+          line-height: 1.6;
+        }
+
+        .scene-dialogue {
+          font-style: italic;
+          color: var(--primary);
+          margin-top: 8px;
+          padding-left: 12px;
+          border-left: 3px solid var(--primary);
+        }
+
+        .hint-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px 20px;
+          background: linear-gradient(135deg, #fef3c7, #fef9c3);
+          border: 2px solid #f59e0b;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-top: auto;
+        }
+
+        .hint-btn:hover {
+          background: #fef3c7;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+        }
+
+        .hint-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .image-actions {
+          position: absolute;
+          bottom: 12px;
+          right: 12px;
+          display: flex;
+          gap: 8px;
+        }
+
+        .image-action-btn {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: white;
+          border: 1px solid var(--border);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1rem;
+          transition: all 0.2s;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .image-action-btn:hover {
+          background: var(--primary-light);
+          border-color: var(--primary);
+        }
+
+        .image-action-btn.delete:hover {
+          background: #fee2e2;
+          border-color: var(--danger);
+        }
+
+        /* 힌트 모달 스타일 */
+        .hint-modal-content {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .hint-section {
+          background: var(--bg);
+          padding: 16px;
+          border-radius: 8px;
+          margin-bottom: 12px;
+        }
+
+        .hint-section h4 {
+          margin: 0 0 12px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .hint-section ul {
+          margin: 0;
+          padding-left: 20px;
+        }
+
+        .hint-section li {
+          margin-bottom: 8px;
+          line-height: 1.5;
+        }
+
+        /* 이미지 편집 모달 */
+        .image-edit-area {
+          position: relative;
+          background: #000;
+          border-radius: 8px;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 300px;
+        }
+
+        .image-edit-area img {
+          max-width: 100%;
+          max-height: 400px;
+          transition: transform 0.3s;
+        }
+
+        .edit-controls {
+          display: flex;
+          justify-content: center;
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .edit-control-btn {
+          padding: 12px 20px;
+          border-radius: 8px;
+          border: 2px solid var(--border);
+          background: white;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          transition: all 0.2s;
+        }
+
+        .edit-control-btn:hover {
+          border-color: var(--primary);
+          background: var(--primary-light);
+        }
+      </style>
+    `;
+
+    startAutoSaveStep3();
+  }
+
+  /**
+   * 장면 썸네일 렌더링
+   */
+  function renderSceneThumbnails() {
+    return step3Data.scenes.map((scene, index) => {
+      const imageData = step3Data.sceneImages[scene.id]?.imageData;
+      const isActive = index === selectedSceneIndex;
+      const isCompleted = !!imageData;
+
+      return `
+        <div class="scene-thumb ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}"
+             onclick="selectScene(${index})">
+          <div class="scene-thumb-inner">
+            <span class="scene-thumb-number">${index + 1}</span>
+            ${imageData ?
+              `<img src="${imageData}" alt="장면 ${index + 1}">` :
+              `<span class="scene-thumb-placeholder">+</span>`
+            }
+          </div>
+          <div class="scene-thumb-label">${escapeHtml(scene.stageName || `장면 ${index + 1}`)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /**
+   * 장면 편집기 렌더링
+   */
+  function renderSceneEditor() {
+    if (step3Data.scenes.length === 0) {
+      return `
+        <div class="empty-state">
+          <div class="empty-state-icon">📭</div>
+          <h3>장면이 없습니다</h3>
+          <p>Step 2에서 장면을 먼저 만들어주세요.</p>
+        </div>
+      `;
+    }
+
+    const scene = step3Data.scenes[selectedSceneIndex];
+    const imageInfo = step3Data.sceneImages[scene.id];
+    const hasImage = !!imageInfo?.imageData;
+
+    return `
+      <div class="scene-editor-header mb-3">
+        <div class="flex items-center gap-3">
+          <div class="scene-number" style="width: 40px; height: 40px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.2rem;">
+            ${selectedSceneIndex + 1}
+          </div>
+          <div>
+            <h3 style="margin: 0;">${escapeHtml(scene.stageName || `장면 ${selectedSceneIndex + 1}`)}</h3>
+            <span class="badge ${scene.isOriginal ? '' : 'badge-active'}" style="${scene.isOriginal ? 'background: var(--primary-light); color: var(--primary);' : ''}">
+              ${scene.isOriginal ? '기본 장면' : '추가 장면'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-editor-content">
+        <!-- 이미지 영역 -->
+        <div class="scene-image-area ${hasImage ? 'has-image' : ''}" id="image-area-${scene.id}">
+          ${hasImage ? `
+            <img src="${imageInfo.imageData}" alt="장면 이미지" id="scene-image-${scene.id}">
+            <div class="image-actions">
+              <button class="image-action-btn" onclick="editImage('${scene.id}')" title="편집">
+                ✏️
+              </button>
+              <button class="image-action-btn" onclick="changeImage('${scene.id}')" title="변경">
+                🔄
+              </button>
+              <button class="image-action-btn delete" onclick="deleteImage('${scene.id}')" title="삭제">
+                🗑️
+              </button>
+            </div>
+          ` : `
+            <div style="text-align: center; padding: 20px;">
+              <p style="font-size: 3rem; margin-bottom: 8px;">🖼️</p>
+              <p style="color: var(--text-muted); margin-bottom: 16px;">그림을 추가해주세요</p>
+
+              <div class="image-upload-options">
+                <button class="upload-option-btn" onclick="captureFromCamera('${scene.id}')">
+                  <span class="icon">📷</span>
+                  <span class="label">촬영하기</span>
+                </button>
+                <button class="upload-option-btn" onclick="selectFromGallery('${scene.id}')">
+                  <span class="icon">📁</span>
+                  <span class="label">가져오기</span>
+                </button>
+              </div>
+            </div>
+          `}
+        </div>
+
+        <!-- 설명 영역 -->
+        <div class="scene-description-area">
+          <div class="scene-description-box">
+            <h4>📝 내가 쓴 이야기</h4>
+            <p>${escapeHtml(scene.description) || '<span style="color: var(--text-muted);">(설명 없음)</span>'}</p>
+            ${scene.dialogue ? `
+              <div class="scene-dialogue">"${escapeHtml(scene.dialogue)}"</div>
+            ` : ''}
+          </div>
+
+          <button class="hint-btn" onclick="showDrawingHint('${scene.id}')" id="hint-btn-${scene.id}">
+            <span style="font-size: 1.5rem;">💡</span>
+            <div>
+              <strong>그림 힌트 보기</strong>
+              <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">또리가 그림 팁을 알려줘요!</p>
+            </div>
+          </button>
+
+          <!-- 장면 네비게이션 -->
+          <div class="flex justify-between mt-3">
+            <button class="btn btn-ghost" onclick="navigateScene(-1)" ${selectedSceneIndex === 0 ? 'disabled' : ''}>
+              ← 이전 장면
+            </button>
+            <button class="btn btn-ghost" onclick="navigateScene(1)" ${selectedSceneIndex === step3Data.scenes.length - 1 ? 'disabled' : ''}>
+              다음 장면 →
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 장면 선택
+   */
+  function selectScene(index) {
+    if (index < 0 || index >= step3Data.scenes.length) return;
+    selectedSceneIndex = index;
+
+    // 썸네일과 편집기 업데이트
+    document.getElementById('scene-thumbnails').innerHTML = renderSceneThumbnails();
+    document.getElementById('scene-editor').innerHTML = renderSceneEditor();
+  }
+
+  /**
+   * 장면 네비게이션
+   */
+  function navigateScene(direction) {
+    const newIndex = selectedSceneIndex + direction;
+    if (newIndex >= 0 && newIndex < step3Data.scenes.length) {
+      selectScene(newIndex);
+    }
+  }
+
+  // 현재 이미지 업로드 대상 장면 ID
+  let currentUploadSceneId = null;
+
+  /**
+   * 카메라로 촬영
+   */
+  function captureFromCamera(sceneId) {
+    currentUploadSceneId = sceneId;
+    document.getElementById('camera-input').click();
+  }
+
+  /**
+   * 갤러리에서 선택
+   */
+  function selectFromGallery(sceneId) {
+    currentUploadSceneId = sceneId;
+    document.getElementById('image-file-input').click();
+  }
+
+  /**
+   * 이미지 변경
+   */
+  function changeImage(sceneId) {
+    selectFromGallery(sceneId);
+  }
+
+  /**
+   * 파일 선택 처리
+   */
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // 파일 타입 검증
+    if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+      showToast('지원하지 않는 이미지 형식입니다. (JPG, PNG, GIF, WebP만 가능)', 'error');
+      return;
+    }
+
+    // 파일 크기 검증
+    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      showToast(`이미지 크기가 너무 큽니다. (최대 ${MAX_IMAGE_SIZE_MB}MB)`, 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      // 이미지 리사이즈 처리
+      resizeImage(e.target.result, 1200, 1200, (resizedData) => {
+        saveImageToScene(currentUploadSceneId, resizedData, 'gallery');
+      });
+    };
+    reader.readAsDataURL(file);
+
+    // 입력 초기화
+    event.target.value = '';
+  }
+
+  /**
+   * 이미지 리사이즈
+   */
+  function resizeImage(dataUrl, maxWidth, maxHeight, callback) {
+    const img = new Image();
+    img.onload = function() {
+      let width = img.width;
+      let height = img.height;
+
+      // 크기 조정 필요 여부 확인
+      if (width <= maxWidth && height <= maxHeight) {
+        callback(dataUrl);
+        return;
+      }
+
+      // 비율 유지하며 크기 조정
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round(height * maxWidth / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round(width * maxHeight / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      callback(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = dataUrl;
+  }
+
+  /**
+   * 이미지 저장
+   */
+  function saveImageToScene(sceneId, imageData, uploadType) {
+    step3Data.sceneImages[sceneId] = {
+      imageData: imageData,
+      uploadType: uploadType,
+      uploadedAt: new Date().toISOString()
+    };
+
+    // UI 업데이트
+    document.getElementById('scene-thumbnails').innerHTML = renderSceneThumbnails();
+    document.getElementById('scene-editor').innerHTML = renderSceneEditor();
+    updateProgressUI();
+
+    showToast('이미지가 추가되었습니다! 🎨', 'success');
+  }
+
+  /**
+   * 이미지 삭제
+   */
+  function deleteImage(sceneId) {
+    showConfirm('이 이미지를 삭제하시겠습니까?', () => {
+      delete step3Data.sceneImages[sceneId];
+
+      document.getElementById('scene-thumbnails').innerHTML = renderSceneThumbnails();
+      document.getElementById('scene-editor').innerHTML = renderSceneEditor();
+      updateProgressUI();
+
+      showToast('이미지가 삭제되었습니다.', 'info');
+    });
+  }
+
+  /**
+   * 이미지 편집 (회전)
+   */
+  function editImage(sceneId) {
+    const imageInfo = step3Data.sceneImages[sceneId];
+    if (!imageInfo) return;
+
+    imageEditState = {
+      sceneId: sceneId,
+      originalImage: imageInfo.imageData,
+      rotation: 0
+    };
+
+    showModal({
+      title: '🖼️ 이미지 편집',
+      content: `
+        <div class="image-edit-area">
+          <img src="${imageInfo.imageData}" id="edit-preview-image" style="transform: rotate(0deg);">
+        </div>
+        <div class="edit-controls">
+          <button class="edit-control-btn" onclick="rotateEditImage(-90)">
+            ↺ 왼쪽 회전
+          </button>
+          <button class="edit-control-btn" onclick="rotateEditImage(90)">
+            ↻ 오른쪽 회전
+          </button>
+        </div>
+      `,
+      buttons: [
+        { text: '취소', class: 'btn-ghost', action: () => hideModal() },
+        { text: '적용', class: 'btn-primary', action: () => applyImageEdit() }
+      ]
+    });
+  }
+
+  /**
+   * 이미지 회전
+   */
+  function rotateEditImage(degrees) {
+    imageEditState.rotation = (imageEditState.rotation + degrees) % 360;
+    const previewImg = document.getElementById('edit-preview-image');
+    if (previewImg) {
+      previewImg.style.transform = `rotate(${imageEditState.rotation}deg)`;
+    }
+  }
+
+  /**
+   * 이미지 편집 적용
+   */
+  function applyImageEdit() {
+    if (!imageEditState.sceneId || imageEditState.rotation === 0) {
+      hideModal();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // 90도 또는 270도 회전 시 캔버스 크기 변경
+      if (Math.abs(imageEditState.rotation) === 90 || Math.abs(imageEditState.rotation) === 270) {
+        canvas.width = img.height;
+        canvas.height = img.width;
+      } else {
+        canvas.width = img.width;
+        canvas.height = img.height;
+      }
+
+      // 캔버스 중심으로 이동 후 회전
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(imageEditState.rotation * Math.PI / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+      const rotatedData = canvas.toDataURL('image/jpeg', 0.85);
+      step3Data.sceneImages[imageEditState.sceneId].imageData = rotatedData;
+
+      // UI 업데이트
+      document.getElementById('scene-thumbnails').innerHTML = renderSceneThumbnails();
+      document.getElementById('scene-editor').innerHTML = renderSceneEditor();
+
+      hideModal();
+      showToast('이미지가 수정되었습니다!', 'success');
+    };
+    img.src = imageEditState.originalImage;
+  }
+
+  /**
+   * 진행률 UI 업데이트
+   */
+  function updateProgressUI() {
+    const completedCount = Object.keys(step3Data.sceneImages).filter(
+      id => step3Data.sceneImages[id]?.imageData
+    ).length;
+    const totalCount = step3Data.scenes.length;
+    const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    // 배지 업데이트
+    const badge = document.querySelector('.card .badge');
+    if (badge && badge.textContent.includes('장면 완성')) {
+      badge.textContent = `${completedCount}/${totalCount} 장면 완성`;
+    }
+
+    // 진행률 바 업데이트
+    const progressFill = document.querySelector('.progress-bar-fill');
+    if (progressFill) {
+      progressFill.style.width = `${progressPercent}%`;
+    }
+
+    // 퍼센트 텍스트 업데이트
+    const percentText = document.querySelector('.progress-bar-container + p');
+    if (percentText) {
+      percentText.textContent = `완성도 ${progressPercent}%`;
+    }
+  }
+
+  /**
+   * 그림 힌트 보기 (AI 활용)
+   */
+  async function showDrawingHint(sceneId) {
+    const scene = step3Data.scenes.find(s => s.id === sceneId);
+    if (!scene) return;
+
+    const hintBtn = document.getElementById(`hint-btn-${sceneId}`);
+    if (hintBtn) {
+      hintBtn.disabled = true;
+      hintBtn.innerHTML = `
+        <span style="font-size: 1.5rem;">⏳</span>
+        <div>
+          <strong>힌트 생성 중...</strong>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">잠시만 기다려주세요</p>
+        </div>
+      `;
+    }
+
+    try {
+      // 또리 AI에게 그림 힌트 요청
+      const result = await callApi('getDrawingHint', {
+        sceneDescription: scene.description,
+        sceneDialogue: scene.dialogue,
+        stageName: scene.stageName
+      });
+
+      if (result.success && result.hint) {
+        showHintModal(scene, result.hint);
+      } else {
+        // AI 응답 실패 시 기본 힌트 제공
+        showHintModal(scene, generateDefaultHint(scene));
+      }
+    } catch (error) {
+      console.error('힌트 생성 실패:', error);
+      showHintModal(scene, generateDefaultHint(scene));
+    } finally {
+      if (hintBtn) {
+        hintBtn.disabled = false;
+        hintBtn.innerHTML = `
+          <span style="font-size: 1.5rem;">💡</span>
+          <div>
+            <strong>그림 힌트 보기</strong>
+            <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">또리가 그림 팁을 알려줘요!</p>
+          </div>
+        `;
+      }
+    }
+  }
+
+  /**
+   * 기본 힌트 생성 (AI 실패 시)
+   */
+  function generateDefaultHint(scene) {
+    return {
+      whatToDraw: [
+        '장면에 나오는 주인공을 그려보세요',
+        '배경(장소)을 간단히 표현해보세요',
+        '중요한 물건이나 소품을 추가해보세요'
+      ],
+      whereToPut: [
+        '주인공은 그림 중앙에 크게 그려보세요',
+        '배경은 뒤쪽에 간단히 그려요',
+        '대사가 있다면 말풍선을 추가해보세요'
+      ],
+      tips: [
+        '색연필이나 사인펜으로 색칠하면 더 예뻐요',
+        '표정을 넣으면 감정이 잘 전달돼요',
+        '배경에 구름이나 나무를 그려보세요'
+      ]
+    };
+  }
+
+  /**
+   * 힌트 모달 표시
+   */
+  function showHintModal(scene, hint) {
+    showModal({
+      title: `💡 그림 힌트: ${escapeHtml(scene.stageName)}`,
+      content: `
+        <div class="hint-modal-content">
+          <div class="hint-section">
+            <h4>🎨 무엇을 그릴까?</h4>
+            <ul>
+              ${(hint.whatToDraw || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </div>
+
+          <div class="hint-section">
+            <h4>📍 어디에 배치할까?</h4>
+            <ul>
+              ${(hint.whereToPut || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </div>
+
+          <div class="hint-section">
+            <h4>✨ 분위기 표현 팁</h4>
+            <ul>
+              ${(hint.tips || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      `,
+      buttons: [{ text: '닫기', class: 'btn-primary' }]
+    });
+  }
+
+  /**
+   * 스토리보드 미리보기
+   */
+  function previewStoryboard() {
+    const scenesHtml = step3Data.scenes.map((scene, index) => {
+      const imageInfo = step3Data.sceneImages[scene.id];
+      return `
+        <div style="background: var(--bg); padding: 12px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="width: 120px; height: 100px; flex-shrink: 0; background: white; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 2px solid var(--border);">
+            ${imageInfo?.imageData ?
+              `<img src="${imageInfo.imageData}" style="max-width: 100%; max-height: 100%; object-fit: contain;">` :
+              `<span style="color: var(--text-muted);">🖼️</span>`
+            }
+          </div>
+          <div style="flex: 1;">
+            <div style="font-weight: 600; margin-bottom: 4px;">
+              ${index + 1}. ${escapeHtml(scene.stageName)}
+            </div>
+            <p style="font-size: 0.85rem; margin: 0; color: var(--text-light);">
+              ${escapeHtml(scene.description) || '(설명 없음)'}
+            </p>
+            ${scene.dialogue ? `
+              <p style="font-size: 0.85rem; margin-top: 4px; font-style: italic; color: var(--primary);">
+                "${escapeHtml(scene.dialogue)}"
+              </p>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    showModal({
+      title: `👁️ 스토리보드 미리보기`,
+      content: `
+        <div style="margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: 8px;">
+          <h3 style="margin: 0;">📖 ${escapeHtml(step3Data.title)}</h3>
+          <p style="margin: 4px 0 0 0; color: var(--text-light);">${step3Data.scenes.length}개 장면</p>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto;">
+          ${scenesHtml}
+        </div>
+      `,
+      buttons: [{ text: '닫기', class: 'btn-primary' }]
+    });
+  }
+
+  /**
+   * PDF 내보내기
+   */
+  async function exportToPDF() {
+    showLoading('PDF 생성 중...');
+
+    try {
+      const result = await callApi('exportStoryboardPDF', {
+        studentName: step3Data.studentName,
+        studentNumber: step3Data.studentNumber,
+        title: step3Data.title,
+        scenes: step3Data.scenes,
+        sceneImages: step3Data.sceneImages
+      });
+
+      hideLoading();
+
+      if (result.success && result.pdfUrl) {
+        // PDF 다운로드 링크 열기
+        window.open(result.pdfUrl, '_blank');
+        showToast('PDF가 생성되었습니다! 📄', 'success');
+      } else {
+        showToast(result.error || 'PDF 생성에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      hideLoading();
+      console.error('PDF 생성 오류:', error);
+      showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+    }
+  }
+
+  /**
+   * Step 3 저장
+   */
+  async function saveStep3(isComplete = false) {
+    if (isSavingStep3) return;
+
+    const saveBtn = document.getElementById('btn-save-step3');
+    const submitBtn = document.getElementById('btn-submit-step3');
+
+    if (isComplete) {
+      // 완료 검증: 모든 장면에 이미지가 있어야 함
+      const missingImages = step3Data.scenes.filter(
+        scene => !step3Data.sceneImages[scene.id]?.imageData
+      );
+
+      if (missingImages.length > 0) {
+        showToast(`${missingImages.length}개 장면에 그림이 없습니다. 모든 장면에 그림을 추가해주세요!`, 'warning');
+
+        // 첫 번째 누락된 장면으로 이동
+        const missingIndex = step3Data.scenes.findIndex(
+          scene => !step3Data.sceneImages[scene.id]?.imageData
+        );
+        if (missingIndex !== -1) {
+          selectScene(missingIndex);
+        }
+        return;
+      }
+    }
+
+    isSavingStep3 = true;
+
+    try {
+      // 버튼 상태 변경
+      if (isComplete) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '⏳ 제출 중...';
+        }
+      } else {
+        if (saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.innerHTML = '⏳ 저장 중...';
+        }
+      }
+
+      const result = await callApi('saveWork', {
+        studentName: step3Data.studentName,
+        studentNumber: step3Data.studentNumber,
+        step: 3,
+        workData: {
+          title: step3Data.title,
+          scenes: step3Data.scenes,
+          sceneImages: step3Data.sceneImages,
+          totalScenes: step3Data.scenes.length,
+          completedScenes: Object.keys(step3Data.sceneImages).filter(
+            id => step3Data.sceneImages[id]?.imageData
+          ).length,
+          isComplete: isComplete,
+          status: isComplete ? 'submitted' : 'draft'
+        }
+      });
+
+      if (result.success) {
+        if (isComplete) {
+          if (submitBtn) {
+            submitBtn.innerHTML = '✅ 제출 완료!';
+            submitBtn.style.background = 'var(--success)';
+          }
+          showToast('스토리보드가 완성되었습니다! 🎉', 'success');
+          stopAutoSaveStep3();
+          setTimeout(() => navigateTo('student-main'), 1500);
+        } else {
+          if (saveBtn) {
+            saveBtn.innerHTML = '✓ 저장됨!';
+            saveBtn.style.color = 'var(--success)';
+            saveBtn.style.borderColor = 'var(--success)';
+            setTimeout(() => {
+              saveBtn.innerHTML = '💾 저장하기';
+              saveBtn.style.color = '';
+              saveBtn.style.borderColor = '';
+              saveBtn.disabled = false;
+            }, 2000);
+          }
+          showToast('저장되었습니다!', 'success');
+        }
+      } else {
+        // 실패 시 복구
+        if (saveBtn) {
+          saveBtn.innerHTML = '💾 저장하기';
+          saveBtn.disabled = false;
+        }
+        if (submitBtn) {
+          submitBtn.innerHTML = '📮 제출하기';
+          submitBtn.disabled = false;
+          submitBtn.style.background = '';
+        }
+        showToast(result.error || '저장에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      console.error('저장 오류:', error);
+      if (saveBtn) {
+        saveBtn.innerHTML = '💾 저장하기';
+        saveBtn.disabled = false;
+      }
+      if (submitBtn) {
+        submitBtn.innerHTML = '📮 제출하기';
+        submitBtn.disabled = false;
+        submitBtn.style.background = '';
+      }
+      showToast('저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+      isSavingStep3 = false;
+    }
+  }
+
+  /**
+   * 자동 저장
+   */
+  let autoSaveStep3Interval = null;
+
+  function startAutoSaveStep3() {
+    stopAutoSaveStep3();
+    autoSaveStep3Interval = setInterval(() => {
+      saveStep3(false);
+    }, STEP3_AUTO_SAVE_INTERVAL_MS);
+  }
+
+  function stopAutoSaveStep3() {
+    if (autoSaveStep3Interval) {
+      clearInterval(autoSaveStep3Interval);
+      autoSaveStep3Interval = null;
+    }
+  }
+
+  /**
+   * 나가기 확인
+   */
+  function confirmExitStep3() {
+    showConfirm('저장하지 않은 내용이 있을 수 있습니다. 나가시겠습니까?', () => {
+      stopAutoSaveStep3();
+      navigateTo('student-main');
+    });
+  }
+</script>

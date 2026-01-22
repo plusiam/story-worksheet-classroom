@@ -729,6 +729,156 @@ function testAiApiKey(apiKey) {
   }
 }
 
+// ============================================
+// 그림 힌트 생성 (Step 3용)
+// ============================================
+
+/**
+ * 장면 설명을 기반으로 그림 힌트 생성
+ * @param {string} sceneDescription - 장면 설명
+ * @param {string} sceneDialogue - 장면 대사 (선택)
+ * @param {string} stageName - 장면 이름
+ * @returns {object} { success, hint }
+ */
+function getDrawingHint(sceneDescription, sceneDialogue, stageName) {
+  try {
+    // AI 설정 확인
+    const aiSettings = getAiSettings();
+    if (!aiSettings.aiEnabled || !aiSettings.aiApiKey) {
+      // AI가 비활성화된 경우 기본 힌트 반환
+      return {
+        success: true,
+        hint: generateBasicDrawingHint(sceneDescription, stageName)
+      };
+    }
+
+    // 그림 힌트 전용 프롬프트
+    const hintPrompt = `# 그림 힌트 도우미
+
+## 역할
+너는 초등학생이 스토리보드 그림을 그릴 때 도움을 주는 미술 선생님이야.
+
+## 응답 형식
+반드시 아래 JSON 형식으로만 응답해. 다른 텍스트는 절대 추가하지 마.
+
+{
+  "whatToDraw": ["그릴 것 1", "그릴 것 2", "그릴 것 3"],
+  "whereToPut": ["배치 힌트 1", "배치 힌트 2", "배치 힌트 3"],
+  "tips": ["표현 팁 1", "표현 팁 2", "표현 팁 3"]
+}
+
+## 규칙
+- 초등학생이 이해할 수 있는 쉬운 말로 작성
+- 각 항목은 1문장으로 짧게
+- 구체적이고 실천 가능한 힌트 제공
+- 긍정적이고 격려하는 톤`;
+
+    const userMessage = `다음 장면을 그림으로 그리려고 해요. 그림 힌트를 알려주세요!
+
+장면 이름: ${stageName || '(없음)'}
+장면 설명: ${sceneDescription || '(없음)'}
+${sceneDialogue ? `대사: "${sceneDialogue}"` : ''}`;
+
+    // Gemini API 호출
+    const result = callGeminiApi(aiSettings.aiApiKey, hintPrompt, [
+      { role: 'user', content: userMessage }
+    ]);
+
+    if (!result.success) {
+      // API 실패 시 기본 힌트 반환
+      return {
+        success: true,
+        hint: generateBasicDrawingHint(sceneDescription, stageName)
+      };
+    }
+
+    // JSON 파싱 시도
+    try {
+      // JSON 부분만 추출 (```json ... ``` 형식 처리)
+      let jsonStr = result.content;
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+
+      const hint = JSON.parse(jsonStr);
+
+      // 필수 필드 확인
+      if (hint.whatToDraw && hint.whereToPut && hint.tips) {
+        return { success: true, hint: hint };
+      } else {
+        throw new Error('Invalid hint format');
+      }
+    } catch (parseError) {
+      console.error('힌트 파싱 오류:', parseError, result.content);
+      // 파싱 실패 시 기본 힌트 반환
+      return {
+        success: true,
+        hint: generateBasicDrawingHint(sceneDescription, stageName)
+      };
+    }
+
+  } catch (error) {
+    console.error('그림 힌트 생성 오류:', error);
+    return {
+      success: true,
+      hint: generateBasicDrawingHint(sceneDescription, stageName)
+    };
+  }
+}
+
+/**
+ * 기본 그림 힌트 생성 (AI 없이)
+ */
+function generateBasicDrawingHint(sceneDescription, stageName) {
+  const hints = {
+    whatToDraw: [
+      '장면에 나오는 주인공을 그려보세요',
+      '배경(장소)을 간단히 표현해보세요',
+      '중요한 물건이나 소품을 추가해보세요'
+    ],
+    whereToPut: [
+      '주인공은 그림 중앙에 크게 그려보세요',
+      '배경은 뒤쪽에 간단히 그려요',
+      '대사가 있다면 말풍선을 추가해보세요'
+    ],
+    tips: [
+      '색연필이나 사인펜으로 색칠하면 더 예뻐요',
+      '표정을 넣으면 감정이 잘 전달돼요',
+      '배경에 구름이나 나무를 그려보세요'
+    ]
+  };
+
+  // 장면 설명에서 키워드 추출하여 힌트 커스터마이징
+  if (sceneDescription) {
+    const desc = sceneDescription.toLowerCase();
+
+    // 감정 관련 힌트
+    if (desc.includes('슬프') || desc.includes('울')) {
+      hints.tips[0] = '눈에서 눈물이 흐르는 것을 그려보세요';
+    } else if (desc.includes('기쁘') || desc.includes('행복') || desc.includes('웃')) {
+      hints.tips[0] = '입꼬리가 올라간 웃는 표정을 그려보세요';
+    } else if (desc.includes('화나') || desc.includes('분노')) {
+      hints.tips[0] = '눈썹이 찌푸려진 표정을 그려보세요';
+    } else if (desc.includes('놀라') || desc.includes('깜짝')) {
+      hints.tips[0] = '눈과 입을 크게 벌린 표정을 그려보세요';
+    }
+
+    // 장소 관련 힌트
+    if (desc.includes('숲') || desc.includes('나무')) {
+      hints.tips[2] = '나무와 풀을 여러 개 그려서 숲 분위기를 내보세요';
+    } else if (desc.includes('바다') || desc.includes('해변')) {
+      hints.tips[2] = '파란 물결과 모래사장을 그려보세요';
+    } else if (desc.includes('집') || desc.includes('방')) {
+      hints.tips[2] = '창문, 문, 가구를 그려서 실내 느낌을 내보세요';
+    } else if (desc.includes('학교') || desc.includes('교실')) {
+      hints.tips[2] = '책상, 칠판, 창문을 그려보세요';
+    }
+  }
+
+  return hints;
+}
+
 /**
  * AI 사용 통계 조회 (교사용)
  */

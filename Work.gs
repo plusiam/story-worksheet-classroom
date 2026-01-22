@@ -633,3 +633,207 @@ function exportAllWorksAsJson(format) {
 
   return { success: true, data: allWorks };
 }
+
+// ============================================
+// 스토리보드 PDF 내보내기 (Step 3용)
+// ============================================
+
+/**
+ * 스토리보드를 PDF로 내보내기
+ * Google Docs를 임시로 생성하여 PDF 변환 후 URL 반환
+ * @param {string} studentName - 학생 이름
+ * @param {number} studentNumber - 학생 번호
+ * @param {string} title - 작품 제목
+ * @param {Array} scenes - 장면 배열
+ * @param {object} sceneImages - 장면별 이미지 데이터 { sceneId: { imageData, ... } }
+ * @returns {object} { success, pdfUrl?, error? }
+ */
+function exportStoryboardPDF(studentName, studentNumber, title, scenes, sceneImages) {
+  try {
+    if (!scenes || scenes.length === 0) {
+      return { success: false, error: '내보낼 장면이 없습니다.' };
+    }
+
+    const settings = getSettings();
+
+    // 임시 Google Doc 생성
+    const doc = DocumentApp.create(`스토리보드_${studentName}_${new Date().getTime()}`);
+    const body = doc.getBody();
+
+    // 스타일 설정
+    body.setMarginTop(36);
+    body.setMarginBottom(36);
+    body.setMarginLeft(36);
+    body.setMarginRight(36);
+
+    // 제목
+    const titlePara = body.appendParagraph(title || '제목 없음');
+    titlePara.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    titlePara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+
+    // 작성자 정보
+    const infoPara = body.appendParagraph(`작성자: ${studentName} (${studentNumber}번)`);
+    infoPara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    infoPara.setFontSize(10);
+    infoPara.setForegroundColor('#666666');
+
+    // 학교/반 정보
+    if (settings.schoolName || settings.className) {
+      const schoolPara = body.appendParagraph(`${settings.schoolName || ''} ${settings.className || ''}`);
+      schoolPara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+      schoolPara.setFontSize(10);
+      schoolPara.setForegroundColor('#666666');
+    }
+
+    body.appendParagraph(''); // 빈 줄
+
+    // 장면별 내용 추가
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+      const imageInfo = sceneImages ? sceneImages[scene.id] : null;
+
+      // 장면 구분선 (첫 장면 제외)
+      if (i > 0) {
+        body.appendHorizontalRule();
+      }
+
+      // 장면 번호 및 제목
+      const sceneTitle = body.appendParagraph(`장면 ${i + 1}: ${scene.stageName || ''}`);
+      sceneTitle.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+
+      // 이미지 추가 (있는 경우)
+      if (imageInfo && imageInfo.imageData) {
+        try {
+          // Base64 이미지 디코딩
+          const base64Data = imageInfo.imageData.replace(/^data:image\/\w+;base64,/, '');
+          const imageBlob = Utilities.newBlob(Utilities.base64Decode(base64Data), 'image/png', 'scene_' + i + '.png');
+
+          // 이미지 삽입 (크기 조정)
+          const inlineImage = body.appendImage(imageBlob);
+
+          // 이미지 크기 조정 (최대 400px 너비)
+          const width = inlineImage.getWidth();
+          const height = inlineImage.getHeight();
+          const maxWidth = 400;
+
+          if (width > maxWidth) {
+            const ratio = maxWidth / width;
+            inlineImage.setWidth(maxWidth);
+            inlineImage.setHeight(height * ratio);
+          }
+        } catch (imgError) {
+          console.error('이미지 삽입 오류:', imgError);
+          const noImagePara = body.appendParagraph('[이미지를 불러올 수 없습니다]');
+          noImagePara.setForegroundColor('#999999');
+          noImagePara.setItalic(true);
+        }
+      } else {
+        const noImagePara = body.appendParagraph('[이미지 없음]');
+        noImagePara.setForegroundColor('#999999');
+        noImagePara.setItalic(true);
+      }
+
+      // 장면 설명
+      if (scene.description) {
+        const descPara = body.appendParagraph(scene.description);
+        descPara.setFontSize(11);
+      }
+
+      // 대사 (있는 경우)
+      if (scene.dialogue) {
+        const dialoguePara = body.appendParagraph(`"${scene.dialogue}"`);
+        dialoguePara.setItalic(true);
+        dialoguePara.setForegroundColor('#336699');
+      }
+
+      body.appendParagraph(''); // 빈 줄
+    }
+
+    // 문서 저장 및 닫기
+    doc.saveAndClose();
+
+    // PDF로 변환
+    const docFile = DriveApp.getFileById(doc.getId());
+    const pdfBlob = docFile.getAs('application/pdf');
+
+    // PDF 파일 생성
+    const pdfFile = DriveApp.createFile(pdfBlob);
+    pdfFile.setName(`스토리보드_${studentName}_${title || '작품'}.pdf`);
+
+    // PDF URL 가져오기
+    const pdfUrl = pdfFile.getUrl();
+
+    // 임시 문서 삭제 (PDF만 남김)
+    docFile.setTrashed(true);
+
+    // 일정 시간 후 PDF도 삭제하도록 트리거 설정 (선택사항)
+    // 학생이 다운로드할 시간 확보 후 정리
+
+    return {
+      success: true,
+      pdfUrl: pdfUrl,
+      fileName: pdfFile.getName()
+    };
+
+  } catch (error) {
+    console.error('PDF 생성 오류:', error);
+    return { success: false, error: 'PDF 생성 중 오류가 발생했습니다: ' + error.message };
+  }
+}
+
+/**
+ * 간단한 HTML 기반 스토리보드 미리보기 생성
+ * (PDF 생성이 실패할 경우의 폴백)
+ * @param {string} studentName - 학생 이름
+ * @param {string} title - 작품 제목
+ * @param {Array} scenes - 장면 배열
+ * @param {object} sceneImages - 장면별 이미지 데이터
+ * @returns {string} HTML 문자열
+ */
+function generateStoryboardHtml(studentName, title, scenes, sceneImages) {
+  const settings = getSettings();
+
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>${title || '스토리보드'}</title>
+      <style>
+        body { font-family: 'Noto Sans KR', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; }
+        .info { text-align: center; color: #666; margin-bottom: 30px; }
+        .scene { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .scene-title { font-weight: bold; font-size: 1.1em; margin-bottom: 12px; color: #4A90D9; }
+        .scene-image { max-width: 100%; border-radius: 8px; margin-bottom: 12px; }
+        .scene-desc { line-height: 1.6; }
+        .scene-dialogue { font-style: italic; color: #336699; margin-top: 8px; padding-left: 12px; border-left: 3px solid #336699; }
+        .no-image { color: #999; font-style: italic; padding: 40px; background: #f5f5f5; border-radius: 8px; text-align: center; }
+      </style>
+    </head>
+    <body>
+      <h1>${title || '제목 없음'}</h1>
+      <p class="info">작성자: ${studentName} | ${settings.schoolName || ''} ${settings.className || ''}</p>
+  `;
+
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const imageInfo = sceneImages ? sceneImages[scene.id] : null;
+
+    html += `
+      <div class="scene">
+        <div class="scene-title">장면 ${i + 1}: ${scene.stageName || ''}</div>
+        ${imageInfo && imageInfo.imageData ?
+          `<img src="${imageInfo.imageData}" class="scene-image" alt="장면 ${i + 1}">` :
+          `<div class="no-image">🖼️ 이미지 없음</div>`
+        }
+        <div class="scene-desc">${scene.description || ''}</div>
+        ${scene.dialogue ? `<div class="scene-dialogue">"${scene.dialogue}"</div>` : ''}
+      </div>
+    `;
+  }
+
+  html += '</body></html>';
+
+  return html;
+}

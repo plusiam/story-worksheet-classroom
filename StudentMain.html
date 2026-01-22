@@ -56,8 +56,8 @@
 
           ${renderStepCard(
             3,
-            '콘티 완성하기',
-            '스토리보드 형태로 작품을 완성해요',
+            '내 그림으로 완성하기',
+            '직접 그린 그림이나 사진으로 스토리보드를 완성해요',
             '🎨',
             false,
             !hasCompletedStep(2)
@@ -100,7 +100,7 @@
     const routeMap = {
       1: 'story-creator',
       2: 'story-creator-step2',
-      3: 'story-creator'  // Step 3는 추후 별도 화면 구현
+      3: 'story-creator-step3'
     };
 
     const route = routeMap[step] || 'story-creator';

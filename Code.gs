@@ -242,6 +242,12 @@ function doPost(e) {
         const aiSettings = getAiSettings();
         result = { success: true, enabled: aiSettings.aiEnabled, hasApiKey: !!aiSettings.aiApiKey };
         break;
+      case 'getDrawingHint':
+        result = getDrawingHint(data.sceneDescription, data.sceneDialogue, data.stageName);
+        break;
+      case 'exportStoryboardPDF':
+        result = exportStoryboardPDF(data.studentName, data.studentNumber, data.title, data.scenes, data.sceneImages);
+        break;
 
       // API 키 보안 관련 (Script Properties 기반)
       case 'getApiKeyInfo':
