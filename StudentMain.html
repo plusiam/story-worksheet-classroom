@@ -96,7 +96,16 @@
       return;
     }
 
-    navigateTo('story-creator', {
+    // Step별 다른 라우트로 이동
+    const routeMap = {
+      1: 'story-creator',
+      2: 'story-creator-step2',
+      3: 'story-creator'  // Step 3는 추후 별도 화면 구현
+    };
+
+    const route = routeMap[step] || 'story-creator';
+
+    navigateTo(route, {
       step: step,
       studentName: user.name,
       studentNumber: user.number,

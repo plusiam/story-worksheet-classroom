@@ -590,13 +590,17 @@ function checkAllowedHours(setting) {
 
 /**
  * AI 설정 가져오기
+ * API 키는 Script Properties에서 암호화되어 저장됨 (보안 강화)
  */
 function getAiSettings() {
   const settings = getSettings();
 
+  // API 키는 Script Properties에서 가져옴 (보안 강화)
+  const apiKey = getSecureApiKey();
+
   return {
     aiEnabled: settings.aiEnabled === 'true' || settings.aiEnabled === true,
-    aiApiKey: settings.aiApiKey || '',
+    aiApiKey: apiKey,
     dailyLimitPerStudent: parseInt(settings.aiDailyLimit) || DEFAULT_AI_SETTINGS.dailyLimitPerStudent,
     maxMessagesPerSession: parseInt(settings.aiMaxMessages) || DEFAULT_AI_SETTINGS.maxMessagesPerSession,
     maxSessionsPerWork: parseInt(settings.aiMaxSessions) || DEFAULT_AI_SETTINGS.maxSessionsPerWork,
@@ -604,14 +608,87 @@ function getAiSettings() {
   };
 }
 
+// ============================================
+// Script Properties 기반 API 키 관리 (보안 강화)
+// ============================================
+
+const API_KEY_PROPERTY = 'GEMINI_API_KEY';
+
+/**
+ * API 키를 Script Properties에서 안전하게 가져오기
+ * @returns {string} API 키 (없으면 빈 문자열)
+ */
+function getSecureApiKey() {
+  try {
+    const scriptProperties = PropertiesService.getScriptProperties();
+    return scriptProperties.getProperty(API_KEY_PROPERTY) || '';
+  } catch (e) {
+    console.error('API 키 조회 오류:', e.message);
+    return '';
+  }
+}
+
+/**
+ * API 키를 Script Properties에 안전하게 저장
+ * @param {string} apiKey - 저장할 API 키
+ * @returns {object} { success, error? }
+ */
+function setSecureApiKey(apiKey) {
+  try {
+    const scriptProperties = PropertiesService.getScriptProperties();
+
+    if (apiKey && apiKey.trim()) {
+      scriptProperties.setProperty(API_KEY_PROPERTY, apiKey.trim());
+    } else {
+      // 빈 값이면 삭제
+      scriptProperties.deleteProperty(API_KEY_PROPERTY);
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error('API 키 저장 오류:', e.message);
+    return { success: false, error: 'API 키 저장 실패: ' + e.message };
+  }
+}
+
+/**
+ * API 키 존재 여부 확인 (키 값 노출 없이)
+ * @returns {boolean} API 키 설정 여부
+ */
+function hasSecureApiKey() {
+  const apiKey = getSecureApiKey();
+  return apiKey && apiKey.length > 0;
+}
+
+/**
+ * API 키 마스킹 (UI 표시용)
+ * @returns {string} 마스킹된 API 키 (예: "AIza...xyz")
+ */
+function getMaskedApiKey() {
+  const apiKey = getSecureApiKey();
+  if (!apiKey || apiKey.length < 10) return '';
+
+  return apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 3);
+}
+
 /**
  * AI 설정 저장
+ * API 키는 Script Properties에 별도 저장 (보안 강화)
  */
 function saveAiSettings(aiSettings) {
   try {
+    // API 키는 Script Properties에 별도 저장 (스프레드시트에 저장 안 함)
+    if (aiSettings.aiApiKey !== undefined) {
+      const keyResult = setSecureApiKey(aiSettings.aiApiKey);
+      if (!keyResult.success) {
+        return keyResult;
+      }
+    }
+
+    // 나머지 설정은 스프레드시트에 저장 (API 키 제외)
     const settingsToSave = {
       aiEnabled: aiSettings.aiEnabled ? 'true' : 'false',
-      aiApiKey: aiSettings.aiApiKey || '',
+      // aiApiKey는 더 이상 스프레드시트에 저장하지 않음
       aiDailyLimit: String(aiSettings.dailyLimitPerStudent || DEFAULT_AI_SETTINGS.dailyLimitPerStudent),
       aiMaxMessages: String(aiSettings.maxMessagesPerSession || DEFAULT_AI_SETTINGS.maxMessagesPerSession),
       aiMaxSessions: String(aiSettings.maxSessionsPerWork || DEFAULT_AI_SETTINGS.maxSessionsPerWork),
@@ -620,6 +697,11 @@ function saveAiSettings(aiSettings) {
 
     const currentSettings = getSettings();
     const mergedSettings = Object.assign({}, currentSettings, settingsToSave);
+
+    // 기존 aiApiKey가 스프레드시트에 있으면 삭제 (마이그레이션)
+    if (mergedSettings.aiApiKey) {
+      delete mergedSettings.aiApiKey;
+    }
 
     return saveSettings(mergedSettings);
 

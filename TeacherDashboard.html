@@ -110,12 +110,8 @@
    * 교사 로그아웃
    */
   function logoutTeacher() {
-    sessionStorage.removeItem('teacherToken');
-    sessionStorage.removeItem('teacherEmail');
-    sessionStorage.removeItem('teacherRole');
-    AppState.isTeacher = false;
-    AppState.teacherToken = null;
-    AppState.teacherEmail = null;
+    // 모든 세션 클리어 (학생 + 교사)
+    clearAllSessions();
     AppState.teacherName = null;
     AppState.teacherRole = null;
     showToast('로그아웃되었습니다.', 'info');

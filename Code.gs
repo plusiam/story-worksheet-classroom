@@ -243,6 +243,15 @@ function doPost(e) {
         result = { success: true, enabled: aiSettings.aiEnabled, hasApiKey: !!aiSettings.aiApiKey };
         break;
 
+      // API 키 보안 관련 (Script Properties 기반)
+      case 'getApiKeyInfo':
+        result = {
+          success: true,
+          hasKey: hasSecureApiKey(),
+          maskedKey: getMaskedApiKey()
+        };
+        break;
+
       default:
         result = { success: false, error: '알 수 없는 요청입니다.' };
     }

@@ -12,6 +12,10 @@
     allowedHours: 'always'
   };
 
+  // API 키 마스킹 정보 (보안 강화)
+  let maskedApiKey = '';
+  let hasExistingKey = false;
+
   /**
    * 또리 설정 화면 렌더링
    */
@@ -21,6 +25,15 @@
       const result = await callApi('getAiSettings');
       if (result.success) {
         aiSettingsData = result.data;
+        // API 키는 마스킹된 형태로만 받음
+        aiSettingsData.aiApiKey = '';  // 실제 키는 클라이언트에 전달하지 않음
+      }
+
+      // 마스킹된 API 키 정보 로드 (보안)
+      const keyInfo = await callApi('getApiKeyInfo');
+      if (keyInfo.success) {
+        maskedApiKey = keyInfo.maskedKey || '';
+        hasExistingKey = keyInfo.hasKey || false;
       }
     } catch (error) {
       console.error('AI 설정 로드 실패:', error);
@@ -66,15 +79,28 @@
           <div class="card mb-3">
             <h4 style="margin: 0 0 16px 0;">🔑 Google AI API 키</h4>
 
-            <div class="form-group">
-              <div class="flex gap-2">
-                <input type="password" id="ai-api-key" class="form-input" style="flex: 1;"
-                       placeholder="API 키를 입력하세요"
-                       value="${escapeHtml(aiSettingsData.aiApiKey || '')}">
-                <button class="btn btn-outline" onclick="toggleApiKeyVisibility()">👁️</button>
-                <button class="btn btn-primary" onclick="testApiKey()">테스트</button>
+            <!-- 현재 API 키 상태 표시 (보안 강화) -->
+            <div id="api-key-current-status" class="mb-3" style="padding: 12px; background: var(--bg); border-radius: 8px;">
+              ${hasExistingKey
+                ? `<span style="color: var(--success);">✅ API 키 설정됨: <code>${maskedApiKey}</code></span>
+                   <button class="btn btn-sm btn-ghost ml-2" onclick="showChangeApiKeyForm()">변경</button>`
+                : `<span style="color: var(--text-light);">⚠️ API 키가 설정되지 않았습니다.</span>`
+              }
+            </div>
+
+            <!-- API 키 입력 폼 (새 키 입력 또는 변경 시) -->
+            <div id="api-key-form" style="display: ${hasExistingKey ? 'none' : 'block'};">
+              <div class="form-group">
+                <label class="form-label">${hasExistingKey ? '새 API 키 입력' : 'API 키 입력'}</label>
+                <div class="flex gap-2">
+                  <input type="password" id="ai-api-key" class="form-input" style="flex: 1;"
+                         placeholder="새 API 키를 입력하세요">
+                  <button class="btn btn-outline" onclick="toggleApiKeyVisibility()">👁️</button>
+                  <button class="btn btn-primary" onclick="testApiKey()">테스트</button>
+                </div>
+                <div id="api-key-status" class="mt-2"></div>
+                ${hasExistingKey ? `<button class="btn btn-ghost btn-sm mt-2" onclick="hideChangeApiKeyForm()">취소</button>` : ''}
               </div>
-              <div id="api-key-status" class="mt-2"></div>
             </div>
 
             <!-- API 키 발급 안내 -->
@@ -250,6 +276,23 @@
   }
 
   /**
+   * API 키 변경 폼 표시
+   */
+  function showChangeApiKeyForm() {
+    document.getElementById('api-key-form').style.display = 'block';
+    document.getElementById('ai-api-key').focus();
+  }
+
+  /**
+   * API 키 변경 폼 숨기기
+   */
+  function hideChangeApiKeyForm() {
+    document.getElementById('api-key-form').style.display = 'none';
+    document.getElementById('ai-api-key').value = '';
+    document.getElementById('api-key-status').innerHTML = '';
+  }
+
+  /**
    * API 키 표시/숨김 토글
    */
   function toggleApiKeyVisibility() {
@@ -300,8 +343,17 @@
    * AI 설정 저장
    */
   async function saveAiSettings() {
-    // API 키 값 업데이트
-    aiSettingsData.aiApiKey = document.getElementById('ai-api-key')?.value.trim() || '';
+    // 새 API 키가 입력된 경우에만 업데이트
+    const newApiKey = document.getElementById('ai-api-key')?.value.trim() || '';
+
+    // 기존 키가 있고 새 키 입력이 없으면 키 변경하지 않음
+    if (hasExistingKey && !newApiKey) {
+      // API 키는 변경하지 않고 다른 설정만 저장
+      delete aiSettingsData.aiApiKey;
+    } else {
+      // 새 키가 입력된 경우
+      aiSettingsData.aiApiKey = newApiKey;
+    }
 
     try {
       showLoading('저장 중...');
@@ -310,6 +362,21 @@
 
       if (result.success) {
         showToast('설정이 저장되었습니다!', 'success');
+
+        // API 키가 새로 저장된 경우 상태 업데이트
+        if (newApiKey) {
+          hasExistingKey = true;
+          maskedApiKey = newApiKey.substring(0, 4) + '...' + newApiKey.substring(newApiKey.length - 3);
+          // UI 업데이트
+          const statusDiv = document.getElementById('api-key-current-status');
+          if (statusDiv) {
+            statusDiv.innerHTML = `
+              <span style="color: var(--success);">✅ API 키 설정됨: <code>${maskedApiKey}</code></span>
+              <button class="btn btn-sm btn-ghost ml-2" onclick="showChangeApiKeyForm()">변경</button>
+            `;
+          }
+          hideChangeApiKeyForm();
+        }
       } else {
         showToast(result.error || '저장에 실패했습니다.', 'error');
       }

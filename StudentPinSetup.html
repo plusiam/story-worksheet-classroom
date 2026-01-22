@@ -96,7 +96,16 @@
       showConfirm(
         '선택한 PIN이 너무 단순합니다 (예: 123456, 111111). 그래도 사용하시겠습니까?',
         () => {
+          // 확인: PIN 설정 진행
           handlePinSetup(pinSetupData.name, pinSetupData.number, pin);
+        },
+        () => {
+          // 취소: PIN 필드 클리어하고 다시 입력하도록
+          clearPinInput('setup-pin');
+          clearPinInput('setup-pin-confirm');
+          // 첫 번째 PIN 입력 필드에 포커스
+          const firstInput = document.querySelector('#setup-pin input');
+          if (firstInput) firstInput.focus();
         }
       );
       return;

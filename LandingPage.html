@@ -35,11 +35,11 @@
           <div class="card landing-main-card">
             <!-- 학급 모드 안내 -->
             <div class="classroom-mode-intro">
-              <div class="intro-badge">👩‍🏫 학급 모드</div>
-              <h2 class="intro-title">선생님 전용 학습지</h2>
+              <div class="intro-badge">📚 학급 학습 시스템</div>
+              <h2 class="intro-title">우리 반만의 학습 공간</h2>
               <p class="intro-desc">
-                이 웹앱은 선생님이 직접 관리하는<br>
-                <strong>독립적인 학급 시스템</strong>입니다.
+                선생님이 직접 관리하는<br>
+                <strong>독립적인 스토리 학습지</strong>입니다.
               </p>
             </div>
 
@@ -86,16 +86,13 @@
               <div class="divider-with-text">
                 <span>이미 설정을 완료하셨나요?</span>
               </div>
-              <div class="existing-user-buttons">
-                <button class="btn-existing" onclick="goToStudentLogin()">
-                  <span class="btn-icon">👨‍🎓</span>
-                  <span>학생 로그인</span>
-                </button>
-                <button class="btn-existing" onclick="goToAdminLogin()">
-                  <span class="btn-icon">🔐</span>
-                  <span>관리자 로그인</span>
-                </button>
-              </div>
+              <button class="btn btn-outline btn-block teacher-dashboard-btn" onclick="goToAdminLogin()">
+                <span class="btn-icon">👩‍🏫</span>
+                선생님 대시보드로 이동
+              </button>
+              <p class="student-login-hint">
+                학생은 QR 코드 또는 <a href="javascript:void(0)" onclick="goToStudentLogin()">직접 로그인</a>으로 접속
+              </p>
             </div>
           </div>
 
@@ -370,6 +367,39 @@
 
         .btn-existing .btn-icon {
           font-size: 1.1rem;
+        }
+
+        /* 선생님 대시보드 버튼 */
+        .teacher-dashboard-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 12px 20px;
+          font-size: 0.95rem;
+        }
+
+        .teacher-dashboard-btn .btn-icon {
+          font-size: 1.1rem;
+        }
+
+        /* 학생 로그인 안내 텍스트 */
+        .student-login-hint {
+          margin-top: 14px;
+          text-align: center;
+          font-size: 0.85rem;
+          color: var(--text-light);
+        }
+
+        .student-login-hint a {
+          color: var(--primary);
+          text-decoration: underline;
+          font-weight: 500;
+          cursor: pointer;
+        }
+
+        .student-login-hint a:hover {
+          color: var(--primary-dark);
         }
 
         /* 푸터 */

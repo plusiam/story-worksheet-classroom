@@ -134,15 +134,45 @@
   /* ============================================
      확인 다이얼로그
      ============================================ */
+  // 콜백을 저장할 전역 변수
+  let _pendingConfirmCallback = null;
+  let _pendingCancelCallback = null;
+
   function showConfirm(message, onConfirm, onCancel) {
+    // 콜백 저장 (클로저 유지를 위해 함수 참조 저장)
+    _pendingConfirmCallback = onConfirm || null;
+    _pendingCancelCallback = onCancel || null;
+
     showModal({
       title: '확인',
       content: `<p>${message}</p>`,
       buttons: [
-        { text: '취소', class: 'btn-outline', onclick: 'closeModal()' },
-        { text: '확인', class: 'btn-primary', onclick: `(${onConfirm.toString()})(); closeModal();` }
+        { text: '취소', class: 'btn-outline', onclick: 'handleConfirmCancel()' },
+        { text: '확인', class: 'btn-primary', onclick: 'handleConfirmOk()' }
       ]
     });
+  }
+
+  // 확인 버튼 핸들러
+  function handleConfirmOk() {
+    const callback = _pendingConfirmCallback;
+    _pendingConfirmCallback = null;
+    _pendingCancelCallback = null;
+    closeModal();
+    if (typeof callback === 'function') {
+      callback();
+    }
+  }
+
+  // 취소 버튼 핸들러
+  function handleConfirmCancel() {
+    const callback = _pendingCancelCallback;
+    _pendingConfirmCallback = null;
+    _pendingCancelCallback = null;
+    closeModal();
+    if (typeof callback === 'function') {
+      callback();
+    }
   }
 
   /* ============================================
@@ -271,9 +301,58 @@
 
   function clearSession() {
     try {
+      // 학생 세션 클리어
       sessionStorage.removeItem('storyCreator_session');
     } catch (e) {
       console.warn('Session storage not available');
+    }
+  }
+
+  /**
+   * 모든 세션 클리어 (학생 + 교사)
+   */
+  function clearAllSessions() {
+    try {
+      // 학생 세션
+      sessionStorage.removeItem('storyCreator_session');
+      // 교사 세션
+      sessionStorage.removeItem('teacherToken');
+      sessionStorage.removeItem('teacherEmail');
+      sessionStorage.removeItem('teacherRole');
+      // AppState 초기화
+      AppState.currentUser = null;
+      AppState.isTeacher = false;
+      AppState.teacherToken = null;
+      AppState.teacherEmail = null;
+    } catch (e) {
+      console.warn('Session storage not available');
+    }
+  }
+
+  /**
+   * 교사 세션만 클리어
+   */
+  function clearTeacherSession() {
+    try {
+      sessionStorage.removeItem('teacherToken');
+      sessionStorage.removeItem('teacherEmail');
+      sessionStorage.removeItem('teacherRole');
+      AppState.isTeacher = false;
+      AppState.teacherToken = null;
+      AppState.teacherEmail = null;
+    } catch (e) {
+      console.warn('Session storage not available');
+    }
+  }
+
+  /**
+   * 교사 세션 존재 여부 확인
+   */
+  function hasTeacherSession() {
+    try {
+      return !!sessionStorage.getItem('teacherToken');
+    } catch (e) {
+      return false;
     }
   }
 

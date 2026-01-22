@@ -11,6 +11,7 @@
       'pin-setup': renderStudentPinSetup,
       'student-main': renderStudentMain,
       'story-creator': renderStoryCreator,
+      'story-creator-step2': renderStoryCreatorStep2,
       'teacher-login': renderTeacherLogin,
       'teacher-setup': renderTeacherSetupWizard,
       'teacher-dashboard': renderTeacherDashboard,
@@ -28,8 +29,12 @@
      ============================================ */
   async function initApp(params) {
     try {
-      // 교사/관리자 모드 먼저 확인
+      // 교사/관리자 모드로 접속 요청
       if (params.mode === 'teacher' || params.mode === 'admin') {
+        // 학생 세션 클리어 (교사 모드로 전환 시)
+        clearSession();
+        AppState.currentUser = null;
+
         // 설정 먼저 로드
         try {
           const settings = await callApi('getSettings');
@@ -62,12 +67,20 @@
 
       // URL 파라미터 처리
       if (params.token) {
-        // QR 토큰으로 접속
+        // QR 토큰으로 접속 시 교사 세션 클리어
+        clearTeacherSession();
         await handleTokenLogin(params.token);
         return;
       }
 
-      // 기존 세션 확인
+      // 교사 세션이 있는지 먼저 확인
+      if (hasTeacherSession()) {
+        // 교사 세션이 있으면 교사 모드로 진입 시도
+        await handleTeacherModeEntry();
+        return;
+      }
+
+      // 학생 세션 확인
       const session = loadSession();
       if (session && session.name && session.number) {
         AppState.currentUser = session;
@@ -143,9 +156,8 @@
      ============================================ */
   function logout() {
     showConfirm('로그아웃 하시겠습니까?', () => {
-      AppState.currentUser = null;
-      AppState.isTeacher = false;
-      clearSession();
+      // 모든 세션 클리어 (학생 + 교사)
+      clearAllSessions();
       showToast('로그아웃 되었습니다.', 'info');
       navigateTo('login');
     });
