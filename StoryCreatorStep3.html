@@ -1100,8 +1100,8 @@
       ],
       extraActions: `
         <div class="modal-extra-actions" style="display: flex; gap: 8px; margin-right: auto;">
-          <button class="btn btn-outline btn-sm" onclick="downloadGuideAsPDF('${scene.id}')" title="PDF로 다운로드">
-            📄 PDF
+          <button class="btn btn-outline btn-sm" onclick="downloadGuideAsHTML('${scene.id}')" title="HTML로 다운로드 (인쇄 가능)">
+            📥 다운로드
           </button>
           <button class="btn btn-outline btn-sm" onclick="refreshAiHints('${scene.id}')" title="AI에게 새로운 힌트 요청">
             🔄 새 힌트
@@ -2154,41 +2154,325 @@
   }
 
   /**
-   * 그림 가이드 PDF 다운로드
+   * 그림 가이드 HTML 다운로드 (인쇄 가능)
    */
-  async function downloadGuideAsPDF(sceneId) {
+  function downloadGuideAsHTML(sceneId) {
     const scene = step3Data.scenes.find(s => s.id === sceneId);
     if (!scene) return;
 
-    showLoading('PDF 생성 중...');
-
     try {
       // 현재 편집 중인 데이터 사용
-      const guideData = {
-        sceneName: scene.stageName,
-        sceneDescription: scene.description,
-        hints: window.currentEditingHints,
-        userAdditions: window.currentUserAdditions,
-        editedItems: window.currentEditedItems,
-        studentName: step3Data.studentName,
-        title: step3Data.title
-      };
+      const hints = window.currentEditingHints || {};
+      const userAdditions = window.currentUserAdditions || [];
+      const editedItems = window.currentEditedItems || {};
+      const studentName = step3Data.studentName || '학생';
+      const title = step3Data.title || '제목 없음';
+      const sceneName = scene.stageName || '장면';
+      const sceneDescription = scene.description || '';
 
-      const result = await callApi('exportDrawingGuidePDF', guideData);
+      // HTML 템플릿 생성
+      const htmlContent = generateGuideHTML({
+        sceneName,
+        sceneDescription,
+        hints,
+        userAdditions,
+        editedItems,
+        studentName,
+        title
+      });
 
-      hideLoading();
+      // Blob으로 다운로드
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
 
-      if (result.success && result.pdfUrl) {
-        window.open(result.pdfUrl, '_blank');
-        showToast('나의 그림 가이드 PDF가 생성되었습니다! 📄', 'success');
-      } else {
-        showToast(result.error || 'PDF 생성에 실패했습니다.', 'error');
-      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `나의그림가이드_${studentName}_${sceneName}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('나의 그림 가이드가 다운로드되었습니다! 📥', 'success');
+      updateTtoriMessage('파일을 열어서 인쇄해보세요! 🖨️');
     } catch (error) {
-      hideLoading();
-      console.error('PDF 생성 오류:', error);
-      showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+      console.error('HTML 생성 오류:', error);
+      showToast('다운로드 중 오류가 발생했습니다.', 'error');
     }
+  }
+
+  /**
+   * 그림 가이드 HTML 템플릿 생성
+   */
+  function generateGuideHTML({ sceneName, sceneDescription, hints, userAdditions, editedItems, studentName, title }) {
+    // 힌트 섹션 렌더링 함수
+    const renderHintSection = (items, sectionKey, icon, title) => {
+      if (!items || items.length === 0) return '';
+
+      const listItems = items.map((item, idx) => {
+        const itemKey = `${sectionKey}_${idx}`;
+        const displayText = editedItems[itemKey] || item;
+        const isEdited = !!editedItems[itemKey];
+        return `<li class="${isEdited ? 'edited' : ''}">${escapeHtmlForDownload(displayText)}${isEdited ? ' <span class="edit-mark">✏️</span>' : ''}</li>`;
+      }).join('');
+
+      return `
+        <div class="hint-section">
+          <h3>${icon} ${title}</h3>
+          <ul>${listItems}</ul>
+        </div>
+      `;
+    };
+
+    // 사용자 아이디어 섹션
+    const renderUserIdeas = () => {
+      if (!userAdditions || userAdditions.length === 0) return '';
+
+      const listItems = userAdditions.map(idea =>
+        `<li class="user-idea">★ ${escapeHtmlForDownload(idea)}</li>`
+      ).join('');
+
+      return `
+        <div class="hint-section user-section">
+          <h3>💭 나만의 아이디어</h3>
+          <ul>${listItems}</ul>
+        </div>
+      `;
+    };
+
+    // 설정에서 학교/반 정보 가져오기 (있으면)
+    const schoolInfo = AppState.settings ?
+      `${AppState.settings.schoolName || ''} ${AppState.settings.className || ''}`.trim() : '';
+
+    return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎨 나의 그림 가이드 - ${escapeHtmlForDownload(sceneName)}</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+  <style>
+    /* 기본 스타일 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', '맑은 고딕', sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #f8fafc;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    /* 헤더 */
+    .header {
+      background: linear-gradient(135deg, #4A90D9 0%, #357ABD 100%);
+      color: white;
+      padding: 24px 32px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+    }
+
+    .header .meta {
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    /* 장면 정보 */
+    .scene-info {
+      background: linear-gradient(135deg, #E8F4FD 0%, #D6EBFA 100%);
+      padding: 20px 32px;
+      border-bottom: 1px solid #cde4f4;
+    }
+
+    .scene-info h2 {
+      color: #2563eb;
+      font-size: 1.3rem;
+      margin-bottom: 8px;
+    }
+
+    .scene-info p {
+      color: #4b5563;
+      font-style: italic;
+    }
+
+    /* 힌트 섹션 */
+    .content {
+      padding: 24px 32px;
+    }
+
+    .hint-section {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      border-left: 4px solid #4A90D9;
+    }
+
+    .hint-section h3 {
+      color: #1e40af;
+      font-size: 1.1rem;
+      margin-bottom: 12px;
+    }
+
+    .hint-section ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .hint-section li {
+      padding: 8px 12px;
+      background: white;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .hint-section li:last-child {
+      margin-bottom: 0;
+    }
+
+    .hint-section li.edited {
+      background: #fffbeb;
+      border-color: #f59e0b;
+      color: #b45309;
+    }
+
+    .edit-mark {
+      font-size: 0.85rem;
+    }
+
+    /* 사용자 아이디어 섹션 */
+    .user-section {
+      border-left-color: #10b981;
+      background: #ecfdf5;
+    }
+
+    .user-section h3 {
+      color: #047857;
+    }
+
+    .user-section li.user-idea {
+      background: white;
+      border-color: #10b981;
+      color: #047857;
+    }
+
+    /* 푸터 */
+    .footer {
+      text-align: center;
+      padding: 16px 32px;
+      background: #f1f5f9;
+      color: #64748b;
+      font-size: 0.85rem;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    /* 인쇄 버튼 */
+    .print-btn {
+      display: block;
+      width: 200px;
+      margin: 20px auto;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #4A90D9 0%, #357ABD 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .print-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(74, 144, 217, 0.4);
+    }
+
+    /* 인쇄 스타일 */
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+
+      .container {
+        box-shadow: none;
+        border-radius: 0;
+      }
+
+      .print-btn {
+        display: none !important;
+      }
+
+      .hint-section {
+        page-break-inside: avoid;
+      }
+
+      .header {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎨 나의 그림 가이드</h1>
+      <p class="meta">작품: ${escapeHtmlForDownload(title)} | 작성자: ${escapeHtmlForDownload(studentName)}</p>
+    </div>
+
+    <div class="scene-info">
+      <h2>📍 ${escapeHtmlForDownload(sceneName)}</h2>
+      ${sceneDescription ? `<p>${escapeHtmlForDownload(sceneDescription)}</p>` : ''}
+    </div>
+
+    <div class="content">
+      ${renderHintSection(hints.whatToDraw, 'whatToDraw', '🖌️', '무엇을 그릴까?')}
+      ${renderHintSection(hints.whereToPut, 'whereToPut', '📐', '어디에 배치할까?')}
+      ${renderHintSection(hints.tips, 'tips', '✨', '분위기 표현 팁')}
+      ${renderUserIdeas()}
+    </div>
+
+    <div class="footer">
+      ${schoolInfo ? `${escapeHtmlForDownload(schoolInfo)} | ` : ''}스토리 구성 웹학습지 🐿️ 또리와 함께
+    </div>
+  </div>
+
+  <button class="print-btn" onclick="window.print()">🖨️ 인쇄하기</button>
+</body>
+</html>`;
+  }
+
+  /**
+   * HTML 다운로드용 이스케이프 (템플릿 리터럴 내에서 사용)
+   */
+  function escapeHtmlForDownload(text) {
+    if (!text) return '';
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   /**
