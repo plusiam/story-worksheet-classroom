@@ -38,11 +38,11 @@
                      placeholder="이야기 제목을 입력하세요" value="${escapeHtml(storyData.workData.title || '')}">
             </div>
             <div class="flex gap-2">
-              <button class="btn btn-outline" onclick="saveStory(false)">
-                💾 저장
+              <button class="btn btn-outline" id="btn-save" onclick="saveStory(false)">
+                💾 저장하기
               </button>
-              <button class="btn btn-primary" onclick="saveStory(true)">
-                ✅ 완료
+              <button class="btn btn-primary" id="btn-submit" onclick="saveStory(true)">
+                📮 제출하기
               </button>
             </div>
           </div>
@@ -221,6 +221,9 @@
    * 작품 저장
    */
   async function saveStory(isComplete = false) {
+    const saveBtn = document.getElementById('btn-save');
+    const submitBtn = document.getElementById('btn-submit');
+
     // 제목 업데이트
     storyData.workData.title = document.getElementById('story-title').value.trim();
 
@@ -250,7 +253,18 @@
     }
 
     try {
-      showLoading('저장 중...');
+      // 버튼 상태 변경: 저장 중
+      if (isComplete) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '⏳ 제출 중...';
+        }
+      } else {
+        if (saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.innerHTML = '⏳ 저장 중...';
+        }
+      }
 
       const result = await callApi('saveWork', {
         studentName: storyData.studentName,
@@ -265,16 +279,53 @@
 
       if (result.success) {
         if (isComplete) {
-          showToast('작품이 완료되었습니다! 🎉', 'success');
-          navigateTo('student-main');
+          // 제출 완료 상태
+          if (submitBtn) {
+            submitBtn.innerHTML = '✅ 제출 완료!';
+            submitBtn.style.background = 'var(--success)';
+          }
+          showToast('작품이 제출되었습니다! 🎉', 'success');
+          setTimeout(() => navigateTo('student-main'), 1000);
         } else {
+          // 저장 완료 상태 (2초 후 원래대로)
+          if (saveBtn) {
+            saveBtn.innerHTML = '✓ 저장됨!';
+            saveBtn.style.color = 'var(--success)';
+            saveBtn.style.borderColor = 'var(--success)';
+            setTimeout(() => {
+              saveBtn.innerHTML = '💾 저장하기';
+              saveBtn.style.color = '';
+              saveBtn.style.borderColor = '';
+              saveBtn.disabled = false;
+            }, 2000);
+          }
           showToast('저장되었습니다!', 'success');
         }
       } else {
+        // 실패 시 원래 상태로 복귀
+        if (saveBtn) {
+          saveBtn.innerHTML = '💾 저장하기';
+          saveBtn.disabled = false;
+        }
+        if (submitBtn) {
+          submitBtn.innerHTML = '📮 제출하기';
+          submitBtn.disabled = false;
+          submitBtn.style.background = '';
+        }
         showToast(result.error || '저장에 실패했습니다.', 'error');
       }
     } catch (error) {
       console.error('저장 오류:', error);
+      // 오류 시 원래 상태로 복귀
+      if (saveBtn) {
+        saveBtn.innerHTML = '💾 저장하기';
+        saveBtn.disabled = false;
+      }
+      if (submitBtn) {
+        submitBtn.innerHTML = '📮 제출하기';
+        submitBtn.disabled = false;
+        submitBtn.style.background = '';
+      }
       showToast('저장 중 오류가 발생했습니다.', 'error');
     }
   }

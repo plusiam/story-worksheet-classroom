@@ -100,7 +100,7 @@
           <div class="flex justify-between items-center">
             <div style="flex: 1;">
               <h3 style="margin: 0 0 8px 0;">📖 ${escapeHtml(step2Data.title)}</h3>
-              <span class="badge" style="background: var(--primary-light); color: var(--primary);">
+              <span class="badge" id="scene-count-badge" style="background: var(--primary-light); color: var(--primary);">
                 총 ${step2Data.scenes.length}개 장면
               </span>
               <span class="badge" style="background: #f0f0f0; color: var(--text-muted); margin-left: 4px;">
@@ -108,11 +108,11 @@
               </span>
             </div>
             <div class="flex gap-2">
-              <button class="btn btn-outline" onclick="saveStep2(false)">
-                💾 저장
+              <button class="btn btn-outline" id="btn-save-step2" onclick="saveStep2(false)">
+                💾 저장하기
               </button>
-              <button class="btn btn-primary" onclick="saveStep2(true)">
-                ✅ 완료
+              <button class="btn btn-primary" id="btn-submit-step2" onclick="saveStep2(true)">
+                📮 제출하기
               </button>
             </div>
           </div>
@@ -184,6 +184,14 @@
         .scene-drag-handle {
           color: var(--text-muted);
           font-size: 1.2rem;
+          padding: 4px;
+          border-radius: 4px;
+          transition: background 0.2s;
+        }
+
+        .scene-drag-handle:hover {
+          background: var(--primary-light);
+          color: var(--primary);
         }
 
         .scene-number {
@@ -242,6 +250,19 @@
           border-color: var(--primary);
         }
 
+        /* 빈 장면 하이라이트 */
+        .scene-textarea.error {
+          border-color: var(--danger);
+          background: #fef2f2;
+          animation: shake 0.3s ease-in-out;
+        }
+
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-4px); }
+          75% { transform: translateX(4px); }
+        }
+
         /* 장면 추가 버튼 */
         .add-scene-btn {
           display: flex;
@@ -291,6 +312,28 @@
           opacity: 0.3;
           cursor: not-allowed;
         }
+
+        /* 장면 이름 입력 필드 */
+        .scene-title-input {
+          font-weight: 600;
+          font-size: 1rem;
+          border: 1px solid transparent;
+          background: transparent;
+          padding: 4px 8px;
+          border-radius: 4px;
+          width: 150px;
+        }
+
+        .scene-title-input:hover {
+          border-color: var(--border);
+          background: var(--bg);
+        }
+
+        .scene-title-input:focus {
+          outline: none;
+          border-color: var(--primary);
+          background: white;
+        }
       </style>
     `;
 
@@ -313,12 +356,22 @@
 
         <div class="scene-card ${scene.isOriginal ? 'original' : 'added'}"
              data-scene-index="${index}"
+             data-scene-id="${scene.id}"
              draggable="true">
-          <div class="scene-header">
+          <div class="scene-header" title="드래그하여 순서 변경">
             <span class="scene-drag-handle">⋮⋮</span>
             <div class="scene-number">${index + 1}</div>
             <div>
-              <strong>${escapeHtml(scene.stageName || '새 장면')}</strong>
+              ${scene.isOriginal ? `
+                <strong>${escapeHtml(scene.stageName)}</strong>
+              ` : `
+                <input type="text"
+                       class="scene-title-input"
+                       value="${escapeHtml(scene.stageName)}"
+                       placeholder="장면 이름"
+                       onchange="updateSceneTitle('${scene.id}', this.value)"
+                       onclick="event.stopPropagation()">
+              `}
               <span class="scene-badge ${scene.isOriginal ? 'original' : 'added'}">
                 ${scene.isOriginal ? '기본' : '추가'}
               </span>
@@ -341,17 +394,17 @@
             <div class="form-group mb-2">
               <label class="form-label">장면 설명</label>
               <textarea class="scene-textarea"
-                        id="scene-desc-${index}"
+                        id="scene-desc-${scene.id}"
                         placeholder="이 장면에서 무슨 일이 일어나나요?"
-                        onchange="updateScene(${index}, 'description', this.value)">${escapeHtml(scene.description || '')}</textarea>
+                        onchange="updateSceneById('${scene.id}', 'description', this.value)">${escapeHtml(scene.description || '')}</textarea>
             </div>
             <div class="form-group">
               <label class="form-label">대사 (선택)</label>
               <textarea class="scene-textarea"
-                        id="scene-dialogue-${index}"
+                        id="scene-dialogue-${scene.id}"
                         style="min-height: 50px;"
                         placeholder="등장인물의 대사"
-                        onchange="updateScene(${index}, 'dialogue', this.value)">${escapeHtml(scene.dialogue || '')}</textarea>
+                        onchange="updateSceneById('${scene.id}', 'dialogue', this.value)">${escapeHtml(scene.dialogue || '')}</textarea>
             </div>
           </div>
         </div>
@@ -367,7 +420,7 @@
   }
 
   /**
-   * 장면 추가
+   * 장면 추가 - 자동 번호 부여
    */
   function addSceneAt(index) {
     // 장면 수 제한 체크
@@ -379,10 +432,13 @@
     // 현재 데이터 저장
     collectSceneData();
 
+    // 추가된 장면 개수 계산하여 자동 번호 부여
+    const addedScenesCount = step2Data.scenes.filter(s => !s.isOriginal).length + 1;
+
     const newScene = {
       id: generateSceneId(),
       originalPanelId: null,
-      stageName: '새 장면',
+      stageName: `추가 장면 ${addedScenesCount}`,
       description: '',
       dialogue: '',
       isOriginal: false,
@@ -393,6 +449,15 @@
     updateSceneOrders();
     refreshScenesList();
     showToast('새 장면이 추가되었습니다!', 'success');
+
+    // 새 장면의 설명 입력란으로 포커스
+    setTimeout(() => {
+      const newTextarea = document.getElementById(`scene-desc-${newScene.id}`);
+      if (newTextarea) {
+        newTextarea.focus();
+        newTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   }
 
   /**
@@ -412,25 +477,6 @@
       refreshScenesList();
       showToast('장면이 삭제되었습니다.', 'info');
     });
-  }
-
-  /**
-   * 장면 이동 (공통 함수)
-   */
-  function swapScenes(fromIndex, toIndex) {
-    if (fromIndex < 0 || fromIndex >= step2Data.scenes.length) return;
-    if (toIndex < 0 || toIndex >= step2Data.scenes.length) return;
-    if (fromIndex === toIndex) return;
-
-    collectSceneData();
-
-    const scene = step2Data.scenes.splice(fromIndex, 1)[0];
-    // 삭제 후 인덱스 보정
-    const adjustedIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-    step2Data.scenes.splice(adjustedIndex, 0, scene);
-
-    updateSceneOrders();
-    refreshScenesList();
   }
 
   /**
@@ -461,27 +507,44 @@
   }
 
   /**
-   * 장면 데이터 업데이트
+   * 장면 제목 업데이트 (ID 기반)
    */
-  function updateScene(index, field, value) {
-    // 허용된 필드만 업데이트
-    const allowedFields = ['description', 'dialogue', 'stageName'];
-    if (!allowedFields.includes(field)) return;
-
-    if (step2Data.scenes[index]) {
-      step2Data.scenes[index][field] = value;
+  function updateSceneTitle(sceneId, value) {
+    const scene = step2Data.scenes.find(s => s.id === sceneId);
+    if (scene && !scene.isOriginal) {
+      scene.stageName = value;
     }
   }
 
   /**
-   * 모든 장면 데이터 수집
+   * 장면 데이터 업데이트 (ID 기반)
+   */
+  function updateSceneById(sceneId, field, value) {
+    const scene = step2Data.scenes.find(s => s.id === sceneId);
+    if (scene) {
+      const allowedFields = ['description', 'dialogue', 'stageName'];
+      if (allowedFields.includes(field)) {
+        scene[field] = value;
+      }
+    }
+  }
+
+  /**
+   * 모든 장면 데이터 수집 (ID 기반으로 수정)
    */
   function collectSceneData() {
-    step2Data.scenes.forEach((scene, index) => {
-      const descEl = document.getElementById(`scene-desc-${index}`);
-      const dialogueEl = document.getElementById(`scene-dialogue-${index}`);
-      if (descEl) scene.description = descEl.value;
-      if (dialogueEl) scene.dialogue = dialogueEl.value;
+    step2Data.scenes.forEach((scene) => {
+      // scene.id 기반으로 DOM 요소 찾기 (인덱스 불일치 버그 수정)
+      const descEl = document.getElementById(`scene-desc-${scene.id}`);
+      const dialogueEl = document.getElementById(`scene-dialogue-${scene.id}`);
+
+      // DOM 요소가 있으면 값 업데이트
+      if (descEl) {
+        scene.description = descEl.value;
+      }
+      if (dialogueEl) {
+        scene.dialogue = dialogueEl.value;
+      }
     });
   }
 
@@ -496,7 +559,7 @@
     }
 
     // 장면 수 배지 업데이트
-    const badge = document.querySelector('.badge');
+    const badge = document.getElementById('scene-count-badge');
     if (badge) {
       badge.textContent = `총 ${step2Data.scenes.length}개 장면`;
     }
@@ -577,18 +640,42 @@
   }
 
   /**
-   * Step 2 저장
+   * Step 2 저장 - 빈 장면 하이라이트 추가, 버튼 상태 변화
    */
   async function saveStep2(isComplete = false) {
     // Race Condition 방지: 저장 중이면 무시
     if (isSaving) return;
 
+    const saveBtn = document.getElementById('btn-save-step2');
+    const submitBtn = document.getElementById('btn-submit-step2');
+
     collectSceneData();
 
     if (isComplete) {
-      const emptyScenes = step2Data.scenes.filter(s => !s.description.trim());
+      const emptyScenes = step2Data.scenes.filter(s => {
+        const desc = s.description || '';
+        return !desc.trim();
+      });
+
       if (emptyScenes.length > 0) {
-        showToast('모든 장면의 설명을 입력해주세요!', 'warning');
+        // 빈 장면 하이라이트 표시
+        emptyScenes.forEach(scene => {
+          const textarea = document.getElementById(`scene-desc-${scene.id}`);
+          if (textarea) {
+            textarea.classList.add('error');
+            // 3초 후 에러 스타일 제거
+            setTimeout(() => textarea.classList.remove('error'), 3000);
+          }
+        });
+
+        // 첫 번째 빈 장면으로 스크롤
+        const firstEmptyTextarea = document.getElementById(`scene-desc-${emptyScenes[0].id}`);
+        if (firstEmptyTextarea) {
+          firstEmptyTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          firstEmptyTextarea.focus();
+        }
+
+        showToast(`${emptyScenes.length}개 장면의 설명이 비어있습니다. 모든 장면을 입력해주세요!`, 'warning');
         return;
       }
     }
@@ -596,7 +683,18 @@
     isSaving = true;
 
     try {
-      showLoading('저장 중...');
+      // 버튼 상태 변경: 저장/제출 중
+      if (isComplete) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '⏳ 제출 중...';
+        }
+      } else {
+        if (saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.innerHTML = '⏳ 저장 중...';
+        }
+      }
 
       const result = await callApi('saveWork', {
         studentName: step2Data.studentName,
@@ -614,17 +712,54 @@
 
       if (result.success) {
         if (isComplete) {
-          showToast('Step 2가 완료되었습니다! 🎉', 'success');
+          // 제출 완료 상태
+          if (submitBtn) {
+            submitBtn.innerHTML = '✅ 제출 완료!';
+            submitBtn.style.background = 'var(--success)';
+          }
+          showToast('Step 2가 제출되었습니다! 🎉', 'success');
           stopAutoSaveStep2();
-          navigateTo('student-main');
+          setTimeout(() => navigateTo('student-main'), 1000);
         } else {
+          // 저장 완료 상태 (2초 후 원래대로)
+          if (saveBtn) {
+            saveBtn.innerHTML = '✓ 저장됨!';
+            saveBtn.style.color = 'var(--success)';
+            saveBtn.style.borderColor = 'var(--success)';
+            setTimeout(() => {
+              saveBtn.innerHTML = '💾 저장하기';
+              saveBtn.style.color = '';
+              saveBtn.style.borderColor = '';
+              saveBtn.disabled = false;
+            }, 2000);
+          }
           showToast('저장되었습니다!', 'success');
         }
       } else {
+        // 실패 시 원래 상태로 복귀
+        if (saveBtn) {
+          saveBtn.innerHTML = '💾 저장하기';
+          saveBtn.disabled = false;
+        }
+        if (submitBtn) {
+          submitBtn.innerHTML = '📮 제출하기';
+          submitBtn.disabled = false;
+          submitBtn.style.background = '';
+        }
         showToast(result.error || '저장에 실패했습니다.', 'error');
       }
     } catch (error) {
       console.error('저장 오류:', error);
+      // 오류 시 원래 상태로 복귀
+      if (saveBtn) {
+        saveBtn.innerHTML = '💾 저장하기';
+        saveBtn.disabled = false;
+      }
+      if (submitBtn) {
+        submitBtn.innerHTML = '📮 제출하기';
+        submitBtn.disabled = false;
+        submitBtn.style.background = '';
+      }
       showToast('저장 중 오류가 발생했습니다.', 'error');
     } finally {
       hideLoading();

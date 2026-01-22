@@ -249,15 +249,21 @@
   }
 
   /**
-   * 학습 단계 카드
+   * 학습 단계 카드 - 완료 상태를 명확하게 표시
    */
   function renderStepCard(step, title, description, icon, isActive = false, isLocked = false) {
+    // 완료 상태 확인 (hasCompletedStep 함수가 있을 때만)
+    const isCompleted = typeof hasCompletedStep === 'function' ? hasCompletedStep(step) : false;
+
     const cardClass = isLocked ? 'opacity: 0.5;' : '';
     const cursorClass = isLocked ? 'cursor: not-allowed;' : 'cursor: pointer;';
 
+    // 완료된 경우 왼쪽 테두리 녹색으로 표시
+    const completedStyle = isCompleted ? 'border-left: 4px solid var(--success);' : '';
+
     return `
       <div class="card ${isActive ? 'active-step' : ''}"
-           style="${cardClass} ${cursorClass} transition: transform 0.2s;"
+           style="${cardClass} ${cursorClass} ${completedStyle} transition: transform 0.2s;"
            onclick="${isLocked ? '' : `startStep(${step})`}"
            onmouseover="this.style.transform='translateY(-4px)'"
            onmouseout="this.style.transform='translateY(0)'">
@@ -267,7 +273,11 @@
             <h3 style="margin: 0;">STEP ${step}</h3>
             <p style="font-weight: 600; margin: 0;">${escapeHtml(title)}</p>
           </div>
-          ${isLocked ? '<span style="margin-left: auto;">🔒</span>' : ''}
+          <div style="margin-left: auto;">
+            ${isLocked ? '<span title="이전 단계를 완료해주세요">🔒</span>' :
+              isCompleted ? '<span style="color: var(--success);" title="제출 완료">✅ 제출 완료</span>' :
+              '<span style="color: var(--text-muted);">⬜ 미완료</span>'}
+          </div>
         </div>
         <p style="color: var(--text-light); font-size: 0.9rem;">${escapeHtml(description)}</p>
       </div>
