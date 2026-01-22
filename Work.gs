@@ -10,6 +10,7 @@
 
 /**
  * 학생 작품 저장 (신규 생성 또는 기존 업데이트)
+ * Lock Service로 동시 접속 시 데이터 충돌 방지
  * @param {string} studentName - 학생 이름
  * @param {number} studentNumber - 학생 번호
  * @param {number} step - 단계 (1, 2, 3)
@@ -36,52 +37,72 @@ function saveWork(studentName, studentNumber, step, workData) {
     return { success: false, error: '작품 데이터가 올바르지 않습니다.' };
   }
 
-  // 시트 가져오기
-  const sheetName = getWorkSheetName(step);
-  const sheet = getOrCreateSheet(sheetName);
-  const now = new Date();
+  // Lock Service - 동시 저장 충돌 방지
+  const lock = LockService.getScriptLock();
 
-  // 기존 작품 찾기 (캐시 사용)
-  const existingWork = DataCache.findWork(nameValidation.value, numberValidation.value, step);
+  try {
+    // 최대 10초 대기 후 락 획득
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: '다른 저장 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.' };
+    }
 
-  // JSON 문자열로 변환
-  const workDataJson = safeJsonStringify(workData);
+    // 시트 가져오기
+    const sheetName = getWorkSheetName(step);
+    const sheet = getOrCreateSheet(sheetName);
+    const now = new Date();
 
-  if (existingWork) {
-    // 기존 작품 업데이트
-    sheet.getRange(existingWork.row, 3).setValue(workDataJson); // 작품데이터
-    sheet.getRange(existingWork.row, 5).setValue(now); // 수정일
-    sheet.getRange(existingWork.row, 6).setValue(workData.isComplete || false); // 완료여부
-    sheet.getRange(existingWork.row, 7).setValue(workData.status || 'draft'); // 상태
+    // 기존 작품 찾기 (캐시 사용)
+    const existingWork = DataCache.findWork(nameValidation.value, numberValidation.value, step);
 
-    // 캐시 무효화 (작품 데이터가 변경됨)
-    DataCache.invalidateWorks(step);
+    // JSON 문자열로 변환
+    const workDataJson = safeJsonStringify(workData);
 
-    return {
-      success: true,
-      isNew: false,
-      savedAt: now.toISOString()
-    };
-  } else {
-    // 새 작품 추가
-    sheet.appendRow([
-      nameValidation.value,
-      numberValidation.value,
-      workDataJson,
-      now,
-      now,
-      workData.isComplete || false,
-      workData.status || 'draft'
-    ]);
+    if (existingWork) {
+      // 기존 작품 업데이트 - 배치 쓰기로 최적화 (4번 → 1번 호출)
+      // 컬럼: 3=작품데이터, 4=생성일(수정X), 5=수정일, 6=완료여부, 7=상태
+      sheet.getRange(existingWork.row, 3, 1, 5).setValues([[
+        workDataJson,                    // 3: 작품데이터
+        existingWork.createdAt || now,   // 4: 생성일 (기존값 유지)
+        now,                             // 5: 수정일
+        workData.isComplete || false,    // 6: 완료여부
+        workData.status || 'draft'       // 7: 상태
+      ]]);
 
-    // 캐시 무효화 (작품 데이터가 변경됨)
-    DataCache.invalidateWorks(step);
+      // 캐시 무효화 (작품 데이터가 변경됨)
+      DataCache.invalidateWorks(step);
 
-    return {
-      success: true,
-      isNew: true,
-      savedAt: now.toISOString()
-    };
+      return {
+        success: true,
+        isNew: false,
+        savedAt: now.toISOString()
+      };
+    } else {
+      // 새 작품 추가
+      sheet.appendRow([
+        nameValidation.value,
+        numberValidation.value,
+        workDataJson,
+        now,
+        now,
+        workData.isComplete || false,
+        workData.status || 'draft'
+      ]);
+
+      // 캐시 무효화 (작품 데이터가 변경됨)
+      DataCache.invalidateWorks(step);
+
+      return {
+        success: true,
+        isNew: true,
+        savedAt: now.toISOString()
+      };
+    }
+  } catch (e) {
+    console.error('작품 저장 오류:', e.message);
+    return { success: false, error: '작품 저장 중 오류가 발생했습니다: ' + e.message };
+  } finally {
+    // 락 해제 (반드시 실행)
+    lock.releaseLock();
   }
 }
 

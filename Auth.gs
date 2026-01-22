@@ -163,25 +163,39 @@ function setStudentPin(name, number, pin) {
     return { success: false, error: '이미 PIN이 설정되어 있습니다.' };
   }
 
-  // PIN 해시 생성 및 저장
-  const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.STUDENTS);
-  const pinHash = hashPin(pinValidation.value);
-  const now = new Date();
+  // Lock Service - 동시 수정 충돌 방지
+  const lock = LockService.getScriptLock();
 
-  // PIN해시 (3열), 마지막접속 (6열), 상태 (7열) 업데이트
-  sheet.getRange(student.row, 3).setValue(pinHash);
-  sheet.getRange(student.row, 6).setValue(now);
-  sheet.getRange(student.row, 7).setValue('active');
+  try {
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: '다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.' };
+    }
 
-  // 캐시 무효화 (학생 정보가 변경됨)
-  DataCache.invalidateStudents();
+    // PIN 해시 생성 및 저장
+    const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAMES.STUDENTS);
+    const pinHash = hashPin(pinValidation.value);
+    const now = new Date();
 
-  return {
-    success: true,
-    name: student.name,
-    number: student.number,
-    token: student.token
-  };
+    // PIN해시 (3열), 마지막접속 (6열), 상태 (7열) 업데이트 - 배치 쓰기 불가 (비연속 컬럼)
+    sheet.getRange(student.row, 3).setValue(pinHash);
+    sheet.getRange(student.row, 6).setValue(now);
+    sheet.getRange(student.row, 7).setValue('active');
+
+    // 캐시 무효화 (학생 정보가 변경됨)
+    DataCache.invalidateStudents();
+
+    return {
+      success: true,
+      name: student.name,
+      number: student.number,
+      token: student.token
+    };
+  } catch (e) {
+    console.error('PIN 설정 오류:', e.message);
+    return { success: false, error: 'PIN 설정 중 오류가 발생했습니다.' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ============================================
@@ -751,6 +765,7 @@ function registerTeacher(email, name, password) {
 
 /**
  * 관리자가 직접 교사 추가 (Google OAuth용)
+ * Lock Service로 동시 추가 충돌 방지
  * @param {string} email - 추가할 교사 이메일
  * @param {string} name - 교사 이름
  * @param {string} role - 역할 (teacher, viewer)
@@ -772,35 +787,49 @@ function addTeacherByAdmin(email, name, role, adminEmail) {
     return { success: false, error: '이름은 2자 이상 입력해주세요.' };
   }
 
-  const sheet = getOrCreateSheet(SHEET_NAMES.TEACHERS);
-  const data = sheet.getDataRange().getValues();
+  // Lock Service - 동시 추가 충돌 방지
+  const lock = LockService.getScriptLock();
 
-  // 이메일 중복 확인
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] && data[i][0].toString().toLowerCase() === email.toLowerCase()) {
-      return { success: false, error: '이미 등록된 이메일입니다.' };
+  try {
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: '다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.' };
     }
+
+    const sheet = getOrCreateSheet(SHEET_NAMES.TEACHERS);
+    const data = sheet.getDataRange().getValues();
+
+    // 이메일 중복 확인
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] && data[i][0].toString().toLowerCase() === email.toLowerCase()) {
+        return { success: false, error: '이미 등록된 이메일입니다.' };
+      }
+    }
+
+    const now = new Date().toISOString();
+    const validRole = ['teacher', 'viewer', 'admin'].includes(role) ? role : 'teacher';
+
+    // 새 교사 추가 (비밀번호 없이, Google OAuth 전용)
+    sheet.appendRow([
+      email.toLowerCase().trim(),
+      name.trim(),
+      '',  // 비밀번호 해시 없음 (Google OAuth 사용)
+      validRole,
+      'approved',  // 관리자가 추가하므로 바로 승인
+      now,
+      now,  // 승인일 = 등록일
+      ''
+    ]);
+
+    return {
+      success: true,
+      message: `${name} 교사가 추가되었습니다.`
+    };
+  } catch (e) {
+    console.error('교사 추가 오류:', e.message);
+    return { success: false, error: '교사 추가 중 오류가 발생했습니다.' };
+  } finally {
+    lock.releaseLock();
   }
-
-  const now = new Date().toISOString();
-  const validRole = ['teacher', 'viewer', 'admin'].includes(role) ? role : 'teacher';
-
-  // 새 교사 추가 (비밀번호 없이, Google OAuth 전용)
-  sheet.appendRow([
-    email.toLowerCase().trim(),
-    name.trim(),
-    '',  // 비밀번호 해시 없음 (Google OAuth 사용)
-    validRole,
-    'approved',  // 관리자가 추가하므로 바로 승인
-    now,
-    now,  // 승인일 = 등록일
-    ''
-  ]);
-
-  return {
-    success: true,
-    message: `${name} 교사가 추가되었습니다.`
-  };
 }
 
 /**
@@ -890,6 +919,7 @@ function loginTeacherWithEmail(email, password) {
 
 /**
  * 교사 승인 (관리자 전용)
+ * Lock Service로 동시 승인 충돌 방지
  * @param {string} email - 승인할 교사 이메일
  * @param {string} adminEmail - 승인하는 관리자 이메일
  * @returns {object} { success, error? }
@@ -906,23 +936,37 @@ function approveTeacher(email, adminEmail) {
     return { success: false, error: '교사 데이터를 찾을 수 없습니다.' };
   }
 
-  const data = sheet.getDataRange().getValues();
+  // Lock Service - 동시 승인 충돌 방지
+  const lock = LockService.getScriptLock();
 
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
-      if (data[i][4] !== 'pending') {
-        return { success: false, error: '대기 상태가 아닙니다.' };
-      }
-
-      // 상태를 approved로 변경
-      sheet.getRange(i + 1, 5).setValue('approved');
-      sheet.getRange(i + 1, 7).setValue(new Date().toISOString());
-
-      return { success: true, message: `${data[i][1]} 선생님이 승인되었습니다.` };
+  try {
+    if (!lock.tryLock(10000)) {
+      return { success: false, error: '다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.' };
     }
-  }
 
-  return { success: false, error: '교사를 찾을 수 없습니다.' };
+    const data = sheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] && data[i][0].toLowerCase() === email.toLowerCase()) {
+        if (data[i][4] !== 'pending') {
+          return { success: false, error: '대기 상태가 아닙니다.' };
+        }
+
+        // 상태를 approved로 변경
+        sheet.getRange(i + 1, 5).setValue('approved');
+        sheet.getRange(i + 1, 7).setValue(new Date().toISOString());
+
+        return { success: true, message: `${data[i][1]} 선생님이 승인되었습니다.` };
+      }
+    }
+
+    return { success: false, error: '교사를 찾을 수 없습니다.' };
+  } catch (e) {
+    console.error('교사 승인 오류:', e.message);
+    return { success: false, error: '교사 승인 중 오류가 발생했습니다.' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
