@@ -248,6 +248,9 @@ function doPost(e) {
       case 'exportStoryboardPDF':
         result = exportStoryboardPDF(data.studentName, data.studentNumber, data.title, data.scenes, data.sceneImages);
         break;
+      case 'exportDrawingGuidePDF':
+        result = exportDrawingGuidePDF(data.sceneName, data.sceneDescription, data.hints, data.userAdditions, data.editedItems, data.studentName, data.title);
+        break;
 
       // API 키 보안 관련 (Script Properties 기반)
       case 'getApiKeyInfo':

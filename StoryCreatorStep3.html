@@ -18,7 +18,8 @@
     studentNumber: 0,
     title: '',
     scenes: [],        // Step 2에서 가져온 장면들
-    sceneImages: {}    // { sceneId: { imageData, uploadType, uploadedAt } }
+    sceneImages: {},   // { sceneId: { imageData, uploadType, uploadedAt } }
+    drawingGuides: {}  // { sceneId: { hints: {...}, userAdditions: [...], editedItems: {...} } }
   };
 
   // 현재 선택된 장면
@@ -70,6 +71,24 @@
     // 기존 Step 3 데이터가 있는지 확인
     if (data?.existingWork?.workData?.sceneImages) {
       step3Data.sceneImages = data.existingWork.workData.sceneImages;
+    }
+
+    // 기존 그림 가이드 데이터 로드
+    if (data?.existingWork?.workData?.drawingGuides) {
+      step3Data.drawingGuides = data.existingWork.workData.drawingGuides;
+    } else {
+      // localStorage에서 복원 시도
+      step3Data.scenes.forEach(scene => {
+        try {
+          const storageKey = `drawingGuide_${step3Data.studentNumber}_${scene.id}`;
+          const saved = localStorage.getItem(storageKey);
+          if (saved) {
+            step3Data.drawingGuides[scene.id] = JSON.parse(saved);
+          }
+        } catch (e) {
+          console.warn('localStorage 로드 실패:', e);
+        }
+      });
     }
 
     renderStep3UI(container);
@@ -256,6 +275,23 @@
 
         .scene-thumb.completed .scene-thumb-number {
           background: var(--success);
+        }
+
+        /* P2: 가이드 인디케이터 */
+        .guide-indicator {
+          position: absolute;
+          bottom: 4px;
+          right: 4px;
+          width: 22px;
+          height: 22px;
+          background: white;
+          border-radius: 50%;
+          font-size: 0.75rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+          border: 2px solid #10b981;
         }
 
         .scene-editor-content {
@@ -504,6 +540,12 @@
       const isActive = index === selectedSceneIndex;
       const isCompleted = !!imageData;
 
+      // P2: 가이드 상태 확인
+      const guide = step3Data.drawingGuides[scene.id];
+      const hasGuide = !!guide;
+      const hasUserIdeas = guide?.userAdditions?.length > 0;
+      const hasEdits = guide?.editedItems && Object.keys(guide.editedItems).length > 0;
+
       return `
         <div class="scene-thumb ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}"
              onclick="selectScene(${index})">
@@ -513,6 +555,11 @@
               `<img src="${imageData}" alt="장면 ${index + 1}">` :
               `<span class="scene-thumb-placeholder">+</span>`
             }
+            ${hasGuide ? `
+              <span class="guide-indicator" title="${hasUserIdeas ? '내 아이디어 포함' : (hasEdits ? '수정된 가이드' : '가이드 저장됨')}">
+                ${hasUserIdeas ? '💭' : (hasEdits ? '✏️' : '📝')}
+              </span>
+            ` : ''}
           </div>
           <div class="scene-thumb-label">${escapeHtml(scene.stageName || `장면 ${index + 1}`)}</div>
         </div>
@@ -598,13 +645,7 @@
             ` : ''}
           </div>
 
-          <button class="hint-btn" onclick="showDrawingHint('${scene.id}')" id="hint-btn-${scene.id}">
-            <span style="font-size: 1.5rem;">💡</span>
-            <div>
-              <strong>그림 힌트 보기</strong>
-              <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">또리가 그림 팁을 알려줘요!</p>
-            </div>
-          </button>
+          ${renderHintButton(scene.id)}
 
           <!-- 장면 네비게이션 -->
           <div class="flex justify-between mt-3">
@@ -890,11 +931,73 @@
   }
 
   /**
+   * 힌트 버튼 렌더링
+   */
+  function renderHintButton(sceneId) {
+    const hasSavedGuide = step3Data.drawingGuides && step3Data.drawingGuides[sceneId];
+    const guideInfo = hasSavedGuide ? step3Data.drawingGuides[sceneId] : null;
+    const hasUserAdditions = guideInfo?.userAdditions?.length > 0;
+    const hasEdits = guideInfo?.editedItems && Object.keys(guideInfo.editedItems).length > 0;
+
+    if (hasSavedGuide) {
+      return `
+        <button class="hint-btn saved-guide" onclick="showDrawingHint('${sceneId}')" id="hint-btn-${sceneId}">
+          <span style="font-size: 1.5rem;">📝</span>
+          <div>
+            <strong>나의 그림 가이드</strong>
+            <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">
+              ${hasUserAdditions ? '✨ 내 아이디어 추가됨' : ''}
+              ${hasEdits ? '✏️ 수정됨' : ''}
+              ${!hasUserAdditions && !hasEdits ? '저장된 가이드 보기' : ''}
+            </p>
+          </div>
+          <span class="saved-badge">저장됨</span>
+        </button>
+        <style>
+          .hint-btn.saved-guide {
+            background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+            border-color: #10b981;
+            position: relative;
+          }
+          .saved-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #10b981;
+            color: white;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+          }
+        </style>
+      `;
+    }
+
+    return `
+      <button class="hint-btn" onclick="showDrawingHint('${sceneId}')" id="hint-btn-${sceneId}">
+        <span style="font-size: 1.5rem;">💡</span>
+        <div>
+          <strong>그림 힌트 보기</strong>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">또리가 그림 팁을 알려줘요!</p>
+        </div>
+      </button>
+    `;
+  }
+
+  /**
    * 그림 힌트 보기 (AI 활용)
    */
   async function showDrawingHint(sceneId) {
     const scene = step3Data.scenes.find(s => s.id === sceneId);
     if (!scene) return;
+
+    // 저장된 가이드가 있으면 바로 모달 표시
+    const savedGuide = step3Data.drawingGuides[sceneId];
+    if (savedGuide && savedGuide.hints) {
+      showHintModal(scene, savedGuide.hints);
+      return;
+    }
 
     const hintBtn = document.getElementById(`hint-btn-${sceneId}`);
     if (hintBtn) {
@@ -926,16 +1029,19 @@
       console.error('힌트 생성 실패:', error);
       showHintModal(scene, generateDefaultHint(scene));
     } finally {
-      if (hintBtn) {
-        hintBtn.disabled = false;
-        hintBtn.innerHTML = `
-          <span style="font-size: 1.5rem;">💡</span>
-          <div>
-            <strong>그림 힌트 보기</strong>
-            <p style="margin: 0; font-size: 0.85rem; color: var(--text-light);">또리가 그림 팁을 알려줘요!</p>
-          </div>
-        `;
-      }
+      // 버튼 복원 - 저장된 가이드 여부에 따라 다르게 표시
+      refreshHintButton(sceneId);
+    }
+  }
+
+  /**
+   * 힌트 버튼 새로고침
+   */
+  function refreshHintButton(sceneId) {
+    const hintBtn = document.getElementById(`hint-btn-${sceneId}`);
+    if (hintBtn) {
+      hintBtn.disabled = false;
+      hintBtn.outerHTML = renderHintButton(sceneId);
     }
   }
 
@@ -963,37 +1069,1126 @@
   }
 
   /**
-   * 힌트 모달 표시
+   * 힌트 모달 표시 (편집 가능 버전)
    */
   function showHintModal(scene, hint) {
+    // 기존 저장된 가이드가 있는지 확인
+    const existingGuide = step3Data.drawingGuides[scene.id];
+
+    // 저장된 데이터가 있으면 사용, 없으면 AI 힌트 사용
+    const currentHints = existingGuide?.hints || hint;
+    const userAdditions = existingGuide?.userAdditions || [];
+    const editedItems = existingGuide?.editedItems || {};
+
+    // 현재 편집 중인 장면 ID 저장
+    window.currentEditingSceneId = scene.id;
+    window.currentEditingHints = JSON.parse(JSON.stringify(currentHints)); // 깊은 복사
+    window.currentUserAdditions = [...userAdditions];
+    window.currentEditedItems = {...editedItems};
+    // 원본 힌트 저장 (초기화용)
+    window.originalHints = JSON.parse(JSON.stringify(hint));
+
+    // 가이드 완성도 계산
+    const completionInfo = calculateGuideCompletion(currentHints, userAdditions, editedItems);
+
     showModal({
-      title: `💡 그림 힌트: ${escapeHtml(scene.stageName)}`,
-      content: `
-        <div class="hint-modal-content">
-          <div class="hint-section">
-            <h4>🎨 무엇을 그릴까?</h4>
-            <ul>
-              ${(hint.whatToDraw || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
-            </ul>
-          </div>
+      title: `💡 나의 그림 가이드: ${escapeHtml(scene.stageName)}`,
+      content: renderEditableHintContent(currentHints, userAdditions, editedItems, completionInfo),
+      buttons: [
+        { text: '취소', class: 'btn-ghost', action: () => hideModal() },
+        { text: '💾 저장하기', class: 'btn-primary', action: () => saveDrawingGuide(scene.id) }
+      ],
+      extraActions: `
+        <div class="modal-extra-actions" style="display: flex; gap: 8px; margin-right: auto;">
+          <button class="btn btn-outline btn-sm" onclick="downloadGuideAsPDF('${scene.id}')" title="PDF로 다운로드">
+            📄 PDF
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="refreshAiHints('${scene.id}')" title="AI에게 새로운 힌트 요청">
+            🔄 새 힌트
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="resetGuideToOriginal()" title="원래 AI 힌트로 되돌리기">
+            ↩️ 초기화
+          </button>
+        </div>
+      `
+    });
+  }
 
-          <div class="hint-section">
-            <h4>📍 어디에 배치할까?</h4>
-            <ul>
-              ${(hint.whereToPut || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
-            </ul>
-          </div>
+  /**
+   * 가이드 완성도 계산
+   */
+  function calculateGuideCompletion(hints, userAdditions, editedItems) {
+    let totalItems = 0;
+    let customizedItems = 0;
 
-          <div class="hint-section">
-            <h4>✨ 분위기 표현 팁</h4>
-            <ul>
-              ${(hint.tips || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
-            </ul>
+    // AI 힌트 항목 수
+    ['whatToDraw', 'whereToPut', 'tips'].forEach(key => {
+      if (hints[key]) {
+        totalItems += hints[key].length;
+        // 수정된 항목 수
+        hints[key].forEach((_, idx) => {
+          if (editedItems[`${key}_${idx}`]) {
+            customizedItems++;
+          }
+        });
+      }
+    });
+
+    // 사용자 아이디어
+    const userIdeasCount = userAdditions.length;
+    customizedItems += userIdeasCount;
+
+    // 완성도 계산 (사용자화 비율 + 아이디어 추가 보너스)
+    const editRatio = totalItems > 0 ? (customizedItems / totalItems) * 100 : 0;
+    const hasUserIdeas = userIdeasCount > 0;
+
+    let level = 'beginner';
+    let message = '아직 시작 단계예요!';
+    let emoji = '🌱';
+
+    if (editRatio >= 50 || userIdeasCount >= 3) {
+      level = 'master';
+      message = '나만의 가이드 완성! 🎉';
+      emoji = '🏆';
+    } else if (editRatio >= 25 || userIdeasCount >= 1) {
+      level = 'intermediate';
+      message = '좋아요! 계속 발전 중!';
+      emoji = '⭐';
+    }
+
+    return {
+      totalItems,
+      customizedItems,
+      userIdeasCount,
+      percentage: Math.min(100, Math.round(editRatio + (userIdeasCount * 10))),
+      level,
+      message,
+      emoji
+    };
+  }
+
+  /**
+   * 편집 가능한 힌트 콘텐츠 렌더링
+   */
+  function renderEditableHintContent(hints, userAdditions, editedItems, completionInfo) {
+    const completion = completionInfo || calculateGuideCompletion(hints, userAdditions, editedItems);
+
+    return `
+      <div class="hint-modal-content editable-hints">
+        <!-- 완성도 표시 (P2) -->
+        <div class="guide-completion-bar" id="guide-completion">
+          <div class="completion-header">
+            <span class="completion-emoji">${completion.emoji}</span>
+            <span class="completion-message">${completion.message}</span>
+            <span class="completion-percentage">${completion.percentage}%</span>
+          </div>
+          <div class="completion-progress">
+            <div class="completion-fill" style="width: ${completion.percentage}%;"></div>
+          </div>
+          <div class="completion-stats">
+            <span>✏️ 수정: ${completion.customizedItems}개</span>
+            <span>💭 내 아이디어: ${completion.userIdeasCount}개</span>
           </div>
         </div>
-      `,
-      buttons: [{ text: '닫기', class: 'btn-primary' }]
+
+        <!-- 또리 응원 메시지 -->
+        <div class="ttori-encouragement" id="ttori-encouragement">
+          <div class="ttori-avatar">🐿️</div>
+          <div class="ttori-message">
+            클릭해서 힌트를 수정하거나, 나만의 아이디어를 추가해보세요!
+          </div>
+        </div>
+
+        ${renderEditableSection('whatToDraw', '🎨 무엇을 그릴까?', hints.whatToDraw || [], editedItems)}
+        ${renderEditableSection('whereToPut', '📍 어디에 배치할까?', hints.whereToPut || [], editedItems)}
+        ${renderEditableSection('tips', '✨ 분위기 표현 팁', hints.tips || [], editedItems)}
+
+        <!-- 나만의 아이디어 섹션 -->
+        <div class="hint-section user-ideas-section">
+          <h4>💭 나만의 아이디어</h4>
+          <div class="user-ideas-list" id="user-ideas-list"
+               ondragover="handleUserIdeaDragOver(event)" ondrop="handleUserIdeaDrop(event)">
+            ${userAdditions.length > 0 ?
+              userAdditions.map((item, idx) => `
+                <div class="editable-hint-item user-added" data-idx="${idx}"
+                     draggable="true"
+                     ondragstart="handleUserIdeaDragStart(event, ${idx})"
+                     ondragend="handleUserIdeaDragEnd(event)">
+                  <span class="drag-handle" title="드래그하여 순서 변경">⋮⋮</span>
+                  <span class="hint-badge user-badge">내 아이디어</span>
+                  <span class="hint-text" onclick="editUserIdea(${idx})">${escapeHtml(item)}</span>
+                  <button class="hint-delete-btn" onclick="deleteUserIdea(${idx})" title="삭제">×</button>
+                </div>
+              `).join('') :
+              '<p class="empty-ideas">아직 추가된 아이디어가 없어요</p>'
+            }
+          </div>
+          <div class="add-idea-form">
+            <input type="text" id="new-idea-input" placeholder="나만의 아이디어를 입력하세요..."
+                   onkeypress="if(event.key==='Enter') addUserIdea()" maxlength="200">
+            <button class="btn btn-sm btn-secondary" onclick="addUserIdea()">+ 추가</button>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        .editable-hints .hint-section {
+          margin-bottom: 16px;
+        }
+
+        .ttori-encouragement {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%);
+          border-radius: 12px;
+          margin-bottom: 16px;
+          border: 2px solid #f59e0b;
+        }
+
+        .ttori-avatar {
+          font-size: 2rem;
+          animation: bounce 1s infinite;
+        }
+
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-5px); }
+        }
+
+        .ttori-message {
+          font-size: 0.9rem;
+          color: #92400e;
+          font-weight: 500;
+        }
+
+        .editable-hint-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          background: white;
+          border-radius: 8px;
+          margin-bottom: 8px;
+          border: 2px solid var(--border);
+          transition: all 0.2s;
+        }
+
+        .editable-hint-item:hover {
+          border-color: var(--primary);
+          box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+        }
+
+        .editable-hint-item.editing {
+          border-color: var(--primary);
+          background: var(--primary-light);
+        }
+
+        .editable-hint-item.user-added {
+          border-color: #10b981;
+          background: #ecfdf5;
+        }
+
+        .editable-hint-item.was-edited {
+          border-color: #f59e0b;
+        }
+
+        .hint-badge {
+          font-size: 0.65rem;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+          flex-shrink: 0;
+        }
+
+        .hint-badge.ai-badge {
+          background: #e0e7ff;
+          color: #4338ca;
+        }
+
+        .hint-badge.edited-badge {
+          background: #fef3c7;
+          color: #b45309;
+        }
+
+        .hint-badge.user-badge {
+          background: #d1fae5;
+          color: #047857;
+        }
+
+        .hint-text {
+          flex: 1;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          line-height: 1.4;
+        }
+
+        .hint-text:hover {
+          background: rgba(99, 102, 241, 0.1);
+        }
+
+        .hint-edit-input {
+          flex: 1;
+          padding: 6px 10px;
+          border: 2px solid var(--primary);
+          border-radius: 6px;
+          font-size: 0.9rem;
+          outline: none;
+        }
+
+        .hint-delete-btn {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          border: none;
+          background: #fee2e2;
+          color: #dc2626;
+          cursor: pointer;
+          font-size: 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+
+        .editable-hint-item:hover .hint-delete-btn {
+          opacity: 1;
+        }
+
+        .hint-delete-btn:hover {
+          background: #dc2626;
+          color: white;
+        }
+
+        .user-ideas-section {
+          background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+          border: 2px solid #10b981;
+        }
+
+        .user-ideas-section h4 {
+          color: #047857;
+        }
+
+        .empty-ideas {
+          color: var(--text-muted);
+          font-style: italic;
+          text-align: center;
+          padding: 12px;
+        }
+
+        .add-idea-form {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .add-idea-form input {
+          flex: 1;
+          padding: 10px 14px;
+          border: 2px solid var(--border);
+          border-radius: 8px;
+          font-size: 0.9rem;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+
+        .add-idea-form input:focus {
+          border-color: #10b981;
+        }
+
+        .hint-item-actions {
+          display: flex;
+          gap: 4px;
+        }
+
+        .hint-save-btn, .hint-cancel-btn {
+          padding: 4px 10px;
+          border-radius: 4px;
+          border: none;
+          cursor: pointer;
+          font-size: 0.8rem;
+        }
+
+        .hint-save-btn {
+          background: var(--primary);
+          color: white;
+        }
+
+        .hint-cancel-btn {
+          background: var(--border);
+          color: var(--text);
+        }
+
+        /* P2: 완성도 표시 */
+        .guide-completion-bar {
+          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+          border: 2px solid #0ea5e9;
+          border-radius: 12px;
+          padding: 12px 16px;
+          margin-bottom: 16px;
+        }
+
+        .completion-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .completion-emoji {
+          font-size: 1.5rem;
+        }
+
+        .completion-message {
+          flex: 1;
+          font-weight: 600;
+          color: #0369a1;
+        }
+
+        .completion-percentage {
+          font-size: 1.2rem;
+          font-weight: 700;
+          color: #0ea5e9;
+        }
+
+        .completion-progress {
+          height: 8px;
+          background: #e0e7ff;
+          border-radius: 4px;
+          overflow: hidden;
+          margin-bottom: 8px;
+        }
+
+        .completion-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #0ea5e9, #06b6d4);
+          border-radius: 4px;
+          transition: width 0.5s ease;
+        }
+
+        .completion-stats {
+          display: flex;
+          gap: 16px;
+          font-size: 0.8rem;
+          color: #64748b;
+        }
+
+        /* P1: 드래그 정렬 */
+        .editable-hint-item {
+          cursor: grab;
+        }
+
+        .editable-hint-item:active {
+          cursor: grabbing;
+        }
+
+        .editable-hint-item.dragging {
+          opacity: 0.5;
+          background: var(--primary-light);
+        }
+
+        .editable-hint-item.drag-over {
+          border-top: 3px solid var(--primary);
+        }
+
+        .drag-handle {
+          cursor: grab;
+          color: var(--text-muted);
+          margin-right: 4px;
+        }
+
+        .drag-handle:active {
+          cursor: grabbing;
+        }
+      </style>
+    `;
+  }
+
+  /**
+   * 편집 가능한 섹션 렌더링
+   */
+  function renderEditableSection(sectionKey, title, items, editedItems) {
+    return `
+      <div class="hint-section" data-section="${sectionKey}">
+        <h4>${title}</h4>
+        <div class="hint-items-list" data-section="${sectionKey}"
+             ondragover="handleDragOver(event)" ondrop="handleDrop(event, '${sectionKey}')">
+          ${items.map((item, idx) => {
+            const itemKey = `${sectionKey}_${idx}`;
+            const isEdited = editedItems[itemKey];
+            const displayText = isEdited ? editedItems[itemKey] : item;
+
+            return `
+              <div class="editable-hint-item ${isEdited ? 'was-edited' : ''}"
+                   data-section="${sectionKey}" data-idx="${idx}"
+                   draggable="true"
+                   ondragstart="handleDragStart(event, '${sectionKey}', ${idx})"
+                   ondragend="handleDragEnd(event)">
+                <span class="drag-handle" title="드래그하여 순서 변경">⋮⋮</span>
+                <span class="hint-badge ${isEdited ? 'edited-badge' : 'ai-badge'}">${isEdited ? '수정됨' : 'AI'}</span>
+                <span class="hint-text" onclick="startEditHintItem('${sectionKey}', ${idx})">${escapeHtml(displayText)}</span>
+                <button class="hint-delete-btn" onclick="deleteHintItem('${sectionKey}', ${idx})" title="삭제">×</button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 힌트 항목 편집 시작
+   */
+  function startEditHintItem(sectionKey, idx) {
+    const itemKey = `${sectionKey}_${idx}`;
+    const originalText = window.currentEditingHints[sectionKey][idx];
+    const currentText = window.currentEditedItems[itemKey] || originalText;
+
+    const itemEl = document.querySelector(`.editable-hint-item[data-section="${sectionKey}"][data-idx="${idx}"]`);
+    if (!itemEl) return;
+
+    itemEl.classList.add('editing');
+    itemEl.innerHTML = `
+      <span class="hint-badge edited-badge">편집 중</span>
+      <input type="text" class="hint-edit-input" value="${escapeHtml(currentText)}"
+             onkeypress="if(event.key==='Enter') saveHintItemEdit('${sectionKey}', ${idx})"
+             onkeydown="if(event.key==='Escape') cancelHintItemEdit('${sectionKey}', ${idx})">
+      <div class="hint-item-actions">
+        <button class="hint-save-btn" onclick="saveHintItemEdit('${sectionKey}', ${idx})">저장</button>
+        <button class="hint-cancel-btn" onclick="cancelHintItemEdit('${sectionKey}', ${idx})">취소</button>
+      </div>
+    `;
+
+    // 입력 필드에 포커스
+    const input = itemEl.querySelector('.hint-edit-input');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+
+    // 또리 응원 메시지 업데이트
+    updateTtoriMessage('좋아요! 자신만의 방식으로 바꿔보세요! ✨');
+  }
+
+  /**
+   * 힌트 항목 편집 저장
+   */
+  function saveHintItemEdit(sectionKey, idx) {
+    const itemEl = document.querySelector(`.editable-hint-item[data-section="${sectionKey}"][data-idx="${idx}"]`);
+    if (!itemEl) return;
+
+    const input = itemEl.querySelector('.hint-edit-input');
+    const rawText = input?.value?.trim();
+
+    if (!rawText) {
+      showToast('내용을 입력해주세요!', 'warning');
+      return;
+    }
+
+    // XSS 방지를 위한 sanitize
+    const newText = sanitizeInput(rawText);
+
+    if (!newText) {
+      showToast('유효한 내용을 입력해주세요!', 'warning');
+      return;
+    }
+
+    const itemKey = `${sectionKey}_${idx}`;
+    window.currentEditedItems[itemKey] = newText;
+
+    // UI 업데이트
+    itemEl.classList.remove('editing');
+    itemEl.classList.add('was-edited');
+    itemEl.innerHTML = `
+      <span class="drag-handle" title="드래그하여 순서 변경">⋮⋮</span>
+      <span class="hint-badge edited-badge">수정됨</span>
+      <span class="hint-text" onclick="startEditHintItem('${sectionKey}', ${idx})">${escapeHtml(newText)}</span>
+      <button class="hint-delete-btn" onclick="deleteHintItem('${sectionKey}', ${idx})" title="삭제">×</button>
+    `;
+
+    // 완성도 업데이트
+    updateCompletionUI();
+
+    // 또리 응원 메시지
+    updateTtoriMessage('멋져요! 나만의 아이디어로 바꿨네요! 🎨');
+  }
+
+  /**
+   * 힌트 항목 편집 취소
+   */
+  function cancelHintItemEdit(sectionKey, idx) {
+    const itemKey = `${sectionKey}_${idx}`;
+    const originalText = window.currentEditingHints[sectionKey][idx];
+    const currentText = window.currentEditedItems[itemKey] || originalText;
+    const isEdited = !!window.currentEditedItems[itemKey];
+
+    const itemEl = document.querySelector(`.editable-hint-item[data-section="${sectionKey}"][data-idx="${idx}"]`);
+    if (!itemEl) return;
+
+    itemEl.classList.remove('editing');
+    if (isEdited) itemEl.classList.add('was-edited');
+
+    itemEl.innerHTML = `
+      <span class="drag-handle" title="드래그하여 순서 변경">⋮⋮</span>
+      <span class="hint-badge ${isEdited ? 'edited-badge' : 'ai-badge'}">${isEdited ? '수정됨' : 'AI'}</span>
+      <span class="hint-text" onclick="startEditHintItem('${sectionKey}', ${idx})">${escapeHtml(currentText)}</span>
+      <button class="hint-delete-btn" onclick="deleteHintItem('${sectionKey}', ${idx})" title="삭제">×</button>
+    `;
+  }
+
+  /**
+   * 힌트 항목 삭제
+   */
+  function deleteHintItem(sectionKey, idx) {
+    const itemKey = `${sectionKey}_${idx}`;
+
+    // 배열에서 제거
+    window.currentEditingHints[sectionKey].splice(idx, 1);
+
+    // editedItems 재정렬
+    const newEditedItems = {};
+    Object.keys(window.currentEditedItems).forEach(key => {
+      if (key.startsWith(sectionKey + '_')) {
+        const keyIdx = parseInt(key.split('_')[1]);
+        if (keyIdx < idx) {
+          newEditedItems[key] = window.currentEditedItems[key];
+        } else if (keyIdx > idx) {
+          newEditedItems[`${sectionKey}_${keyIdx - 1}`] = window.currentEditedItems[key];
+        }
+        // idx와 같은 경우는 삭제되므로 무시
+      } else {
+        newEditedItems[key] = window.currentEditedItems[key];
+      }
     });
+    window.currentEditedItems = newEditedItems;
+
+    // 섹션 UI 다시 렌더링
+    refreshHintSection(sectionKey);
+    updateCompletionUI();
+    updateTtoriMessage('힌트가 삭제되었어요!');
+  }
+
+  /**
+   * 힌트 섹션 새로고침
+   */
+  function refreshHintSection(sectionKey) {
+    const sectionEl = document.querySelector(`.hint-section[data-section="${sectionKey}"]`);
+    if (!sectionEl) return;
+
+    const titleMap = {
+      'whatToDraw': '🎨 무엇을 그릴까?',
+      'whereToPut': '📍 어디에 배치할까?',
+      'tips': '✨ 분위기 표현 팁'
+    };
+
+    sectionEl.outerHTML = renderEditableSection(
+      sectionKey,
+      titleMap[sectionKey],
+      window.currentEditingHints[sectionKey],
+      window.currentEditedItems
+    );
+  }
+
+  /**
+   * 입력값 sanitize (XSS 방지)
+   */
+  function sanitizeInput(text) {
+    if (!text) return '';
+    // HTML 태그 제거 및 특수문자 이스케이프
+    return text
+      .replace(/<[^>]*>/g, '') // HTML 태그 제거
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+      .trim()
+      .substring(0, 200); // 최대 길이 제한
+  }
+
+  /**
+   * 나만의 아이디어 추가
+   */
+  function addUserIdea() {
+    const input = document.getElementById('new-idea-input');
+    const rawInput = input?.value?.trim();
+
+    if (!rawInput) {
+      showToast('아이디어를 입력해주세요!', 'warning');
+      return;
+    }
+
+    // XSS 방지를 위한 sanitize
+    const newIdea = sanitizeInput(rawInput);
+
+    if (!newIdea) {
+      showToast('유효한 내용을 입력해주세요!', 'warning');
+      return;
+    }
+
+    window.currentUserAdditions.push(newIdea);
+    input.value = '';
+
+    // UI 업데이트
+    refreshUserIdeasList();
+    updateCompletionUI();
+    updateTtoriMessage('와! 멋진 아이디어네요! 🌟');
+  }
+
+  /**
+   * 나만의 아이디어 편집
+   */
+  function editUserIdea(idx) {
+    const currentText = window.currentUserAdditions[idx];
+    const listEl = document.getElementById('user-ideas-list');
+    const itemEl = listEl.querySelector(`.editable-hint-item[data-idx="${idx}"]`);
+
+    if (!itemEl) return;
+
+    itemEl.classList.add('editing');
+    itemEl.innerHTML = `
+      <span class="hint-badge user-badge">편집 중</span>
+      <input type="text" class="hint-edit-input" value="${escapeHtml(currentText)}"
+             onkeypress="if(event.key==='Enter') saveUserIdeaEdit(${idx})"
+             onkeydown="if(event.key==='Escape') refreshUserIdeasList()">
+      <div class="hint-item-actions">
+        <button class="hint-save-btn" onclick="saveUserIdeaEdit(${idx})">저장</button>
+        <button class="hint-cancel-btn" onclick="refreshUserIdeasList()">취소</button>
+      </div>
+    `;
+
+    const input = itemEl.querySelector('.hint-edit-input');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  /**
+   * 나만의 아이디어 편집 저장
+   */
+  function saveUserIdeaEdit(idx) {
+    const listEl = document.getElementById('user-ideas-list');
+    const input = listEl.querySelector(`.editable-hint-item[data-idx="${idx}"] .hint-edit-input`);
+    const rawText = input?.value?.trim();
+
+    if (!rawText) {
+      showToast('내용을 입력해주세요!', 'warning');
+      return;
+    }
+
+    // XSS 방지를 위한 sanitize
+    const newText = sanitizeInput(rawText);
+
+    if (!newText) {
+      showToast('유효한 내용을 입력해주세요!', 'warning');
+      return;
+    }
+
+    window.currentUserAdditions[idx] = newText;
+    refreshUserIdeasList();
+    updateTtoriMessage('아이디어가 수정되었어요! ✏️');
+  }
+
+  /**
+   * 나만의 아이디어 삭제
+   */
+  function deleteUserIdea(idx) {
+    window.currentUserAdditions.splice(idx, 1);
+    refreshUserIdeasList();
+    updateCompletionUI();
+    updateTtoriMessage('아이디어가 삭제되었어요!');
+  }
+
+  /**
+   * 나만의 아이디어 목록 새로고침
+   */
+  function refreshUserIdeasList() {
+    const listEl = document.getElementById('user-ideas-list');
+    if (!listEl) return;
+
+    if (window.currentUserAdditions.length > 0) {
+      listEl.innerHTML = window.currentUserAdditions.map((item, idx) => `
+        <div class="editable-hint-item user-added" data-idx="${idx}"
+             draggable="true"
+             ondragstart="handleUserIdeaDragStart(event, ${idx})"
+             ondragend="handleUserIdeaDragEnd(event)">
+          <span class="drag-handle" title="드래그하여 순서 변경">⋮⋮</span>
+          <span class="hint-badge user-badge">내 아이디어</span>
+          <span class="hint-text" onclick="editUserIdea(${idx})">${escapeHtml(item)}</span>
+          <button class="hint-delete-btn" onclick="deleteUserIdea(${idx})" title="삭제">×</button>
+        </div>
+      `).join('');
+    } else {
+      listEl.innerHTML = '<p class="empty-ideas">아직 추가된 아이디어가 없어요</p>';
+    }
+  }
+
+  // ============================================
+  // 사용자 아이디어 드래그 정렬
+  // ============================================
+
+  let draggedUserIdeaIdx = null;
+
+  /**
+   * 사용자 아이디어 드래그 시작
+   */
+  function handleUserIdeaDragStart(event, idx) {
+    draggedUserIdeaIdx = idx;
+    event.target.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', idx);
+  }
+
+  /**
+   * 사용자 아이디어 드래그 종료
+   */
+  function handleUserIdeaDragEnd(event) {
+    event.target.classList.remove('dragging');
+    document.querySelectorAll('.user-ideas-list .drag-over').forEach(el => el.classList.remove('drag-over'));
+    draggedUserIdeaIdx = null;
+  }
+
+  /**
+   * 사용자 아이디어 드래그 오버
+   */
+  function handleUserIdeaDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+
+    const target = event.target.closest('.editable-hint-item.user-added');
+    if (target && parseInt(target.dataset.idx) !== draggedUserIdeaIdx) {
+      document.querySelectorAll('.user-ideas-list .drag-over').forEach(el => el.classList.remove('drag-over'));
+      target.classList.add('drag-over');
+    }
+  }
+
+  /**
+   * 사용자 아이디어 드롭 처리
+   */
+  function handleUserIdeaDrop(event) {
+    event.preventDefault();
+
+    const target = event.target.closest('.editable-hint-item.user-added');
+    if (!target || draggedUserIdeaIdx === null) return;
+
+    const targetIdx = parseInt(target.dataset.idx);
+    if (targetIdx === draggedUserIdeaIdx) return;
+
+    // 배열 순서 변경
+    const [movedItem] = window.currentUserAdditions.splice(draggedUserIdeaIdx, 1);
+    window.currentUserAdditions.splice(targetIdx, 0, movedItem);
+
+    // UI 새로고침
+    refreshUserIdeasList();
+    updateCompletionUI();
+    updateTtoriMessage('아이디어 순서가 변경되었어요! 📝');
+  }
+
+  /**
+   * 또리 응원 메시지 업데이트
+   */
+  function updateTtoriMessage(message) {
+    const msgEl = document.querySelector('.ttori-message');
+    if (msgEl) {
+      msgEl.textContent = message;
+      msgEl.style.animation = 'none';
+      msgEl.offsetHeight; // 리플로우
+      msgEl.style.animation = 'pulse 0.3s ease';
+    }
+  }
+
+  /**
+   * 완성도 UI 업데이트
+   */
+  function updateCompletionUI() {
+    const completion = calculateGuideCompletion(
+      window.currentEditingHints,
+      window.currentUserAdditions,
+      window.currentEditedItems
+    );
+
+    const completionEl = document.getElementById('guide-completion');
+    if (completionEl) {
+      completionEl.querySelector('.completion-emoji').textContent = completion.emoji;
+      completionEl.querySelector('.completion-message').textContent = completion.message;
+      completionEl.querySelector('.completion-percentage').textContent = `${completion.percentage}%`;
+      completionEl.querySelector('.completion-fill').style.width = `${completion.percentage}%`;
+      completionEl.querySelector('.completion-stats').innerHTML = `
+        <span>✏️ 수정: ${completion.customizedItems}개</span>
+        <span>💭 내 아이디어: ${completion.userIdeasCount}개</span>
+      `;
+    }
+  }
+
+  // ============================================
+  // P1: AI 힌트 새로고침
+  // ============================================
+
+  /**
+   * AI 힌트 새로 요청
+   */
+  async function refreshAiHints(sceneId) {
+    const scene = step3Data.scenes.find(s => s.id === sceneId);
+    if (!scene) return;
+
+    showConfirm('AI에게 새로운 힌트를 요청할까요? 현재 수정한 내용은 유지됩니다.', async () => {
+      showLoading('새로운 힌트 생성 중...');
+
+      try {
+        const result = await callApi('getDrawingHint', {
+          sceneDescription: scene.description,
+          sceneDialogue: scene.dialogue,
+          stageName: scene.stageName
+        });
+
+        hideLoading();
+
+        if (result.success && result.hint) {
+          // 새 힌트를 기존에 병합 (기존 수정 내용은 유지)
+          mergeNewHints(result.hint);
+          updateTtoriMessage('새로운 힌트가 추가되었어요! ✨');
+          showToast('새로운 AI 힌트가 추가되었습니다!', 'success');
+        } else {
+          showToast('힌트 생성에 실패했습니다.', 'error');
+        }
+      } catch (error) {
+        hideLoading();
+        console.error('힌트 새로고침 실패:', error);
+        showToast('힌트 생성 중 오류가 발생했습니다.', 'error');
+      }
+    });
+  }
+
+  /**
+   * 새 힌트 병합
+   */
+  function mergeNewHints(newHints) {
+    // 각 섹션에 새 힌트 추가
+    ['whatToDraw', 'whereToPut', 'tips'].forEach(key => {
+      if (newHints[key] && newHints[key].length > 0) {
+        // 기존에 없는 새 힌트만 추가
+        const existing = window.currentEditingHints[key] || [];
+        newHints[key].forEach(newItem => {
+          if (!existing.includes(newItem)) {
+            window.currentEditingHints[key].push(newItem);
+          }
+        });
+
+        // 섹션 UI 새로고침
+        refreshHintSection(key);
+      }
+    });
+
+    updateCompletionUI();
+  }
+
+  // ============================================
+  // P1: 힌트 초기화 (원본 복원)
+  // ============================================
+
+  /**
+   * 가이드를 원래 AI 힌트로 초기화
+   */
+  function resetGuideToOriginal() {
+    showConfirm('모든 수정 내용을 초기화하고 원래 AI 힌트로 되돌릴까요?', () => {
+      // 원본 힌트로 복원
+      window.currentEditingHints = JSON.parse(JSON.stringify(window.originalHints));
+      window.currentUserAdditions = [];
+      window.currentEditedItems = {};
+
+      // 모든 섹션 UI 새로고침
+      ['whatToDraw', 'whereToPut', 'tips'].forEach(key => {
+        refreshHintSection(key);
+      });
+      refreshUserIdeasList();
+      updateCompletionUI();
+
+      updateTtoriMessage('원래 힌트로 돌아왔어요! 다시 시작해볼까요? 🔄');
+      showToast('가이드가 초기화되었습니다.', 'info');
+    });
+  }
+
+  // ============================================
+  // P1: 드래그 정렬
+  // ============================================
+
+  let draggedItem = null;
+  let draggedSection = null;
+  let draggedIdx = null;
+
+  /**
+   * 드래그 시작
+   */
+  function handleDragStart(event, sectionKey, idx) {
+    draggedItem = event.target;
+    draggedSection = sectionKey;
+    draggedIdx = idx;
+    event.target.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', idx);
+  }
+
+  /**
+   * 드래그 종료
+   */
+  function handleDragEnd(event) {
+    event.target.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    draggedItem = null;
+    draggedSection = null;
+    draggedIdx = null;
+  }
+
+  /**
+   * 드래그 오버
+   */
+  function handleDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+
+    const target = event.target.closest('.editable-hint-item');
+    if (target && target !== draggedItem) {
+      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      target.classList.add('drag-over');
+    }
+  }
+
+  /**
+   * 드롭 처리
+   */
+  function handleDrop(event, sectionKey) {
+    event.preventDefault();
+
+    if (draggedSection !== sectionKey) {
+      // 다른 섹션으로는 이동 불가
+      showToast('같은 섹션 내에서만 순서를 변경할 수 있어요.', 'warning');
+      return;
+    }
+
+    const target = event.target.closest('.editable-hint-item');
+    if (!target || target === draggedItem) return;
+
+    const targetIdx = parseInt(target.dataset.idx);
+
+    // 배열 순서 변경
+    const items = window.currentEditingHints[sectionKey];
+    const [movedItem] = items.splice(draggedIdx, 1);
+    items.splice(targetIdx, 0, movedItem);
+
+    // editedItems 인덱스 재정렬
+    reindexEditedItems(sectionKey);
+
+    // UI 새로고침
+    refreshHintSection(sectionKey);
+    updateTtoriMessage('순서가 변경되었어요! 📝');
+  }
+
+  /**
+   * 수정된 항목 인덱스 재정렬
+   */
+  function reindexEditedItems(sectionKey) {
+    const items = window.currentEditingHints[sectionKey];
+    const newEditedItems = {};
+
+    // 기존 editedItems에서 해당 섹션 외의 항목들 보존
+    Object.keys(window.currentEditedItems).forEach(key => {
+      if (!key.startsWith(sectionKey + '_')) {
+        newEditedItems[key] = window.currentEditedItems[key];
+      }
+    });
+
+    // 새 인덱스로 재할당
+    items.forEach((item, idx) => {
+      // 이전에 수정된 항목인지 확인 (원본과 비교)
+      const originalItems = window.originalHints[sectionKey] || [];
+      const originalIdx = originalItems.indexOf(item);
+
+      if (originalIdx === -1) {
+        // 원본에 없는 항목 = 새로 추가된 항목이거나 수정된 항목
+        // 이전 editedItems에서 값 찾기
+        for (const key of Object.keys(window.currentEditedItems)) {
+          if (key.startsWith(sectionKey + '_') && window.currentEditedItems[key] === item) {
+            newEditedItems[`${sectionKey}_${idx}`] = item;
+            break;
+          }
+        }
+      }
+    });
+
+    window.currentEditedItems = newEditedItems;
+  }
+
+  /**
+   * 그림 가이드 저장
+   */
+  function saveDrawingGuide(sceneId) {
+    // step3Data에 저장
+    step3Data.drawingGuides[sceneId] = {
+      hints: window.currentEditingHints,
+      userAdditions: window.currentUserAdditions,
+      editedItems: window.currentEditedItems,
+      savedAt: new Date().toISOString()
+    };
+
+    // localStorage에도 백업 저장
+    try {
+      const storageKey = `drawingGuide_${step3Data.studentNumber}_${sceneId}`;
+      localStorage.setItem(storageKey, JSON.stringify(step3Data.drawingGuides[sceneId]));
+    } catch (e) {
+      console.warn('localStorage 저장 실패:', e);
+    }
+
+    hideModal();
+
+    // 힌트 버튼 업데이트 (저장됨 표시)
+    refreshHintButton(sceneId);
+
+    // 장면 썸네일도 업데이트
+    document.getElementById('scene-thumbnails').innerHTML = renderSceneThumbnails();
+
+    showToast('그림 가이드가 저장되었습니다! 💾', 'success');
+  }
+
+  /**
+   * 그림 가이드 PDF 다운로드
+   */
+  async function downloadGuideAsPDF(sceneId) {
+    const scene = step3Data.scenes.find(s => s.id === sceneId);
+    if (!scene) return;
+
+    showLoading('PDF 생성 중...');
+
+    try {
+      // 현재 편집 중인 데이터 사용
+      const guideData = {
+        sceneName: scene.stageName,
+        sceneDescription: scene.description,
+        hints: window.currentEditingHints,
+        userAdditions: window.currentUserAdditions,
+        editedItems: window.currentEditedItems,
+        studentName: step3Data.studentName,
+        title: step3Data.title
+      };
+
+      const result = await callApi('exportDrawingGuidePDF', guideData);
+
+      hideLoading();
+
+      if (result.success && result.pdfUrl) {
+        window.open(result.pdfUrl, '_blank');
+        showToast('나의 그림 가이드 PDF가 생성되었습니다! 📄', 'success');
+      } else {
+        showToast(result.error || 'PDF 생성에 실패했습니다.', 'error');
+      }
+    } catch (error) {
+      hideLoading();
+      console.error('PDF 생성 오류:', error);
+      showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+    }
   }
 
   /**
@@ -1126,6 +2321,7 @@
           title: step3Data.title,
           scenes: step3Data.scenes,
           sceneImages: step3Data.sceneImages,
+          drawingGuides: step3Data.drawingGuides,  // 그림 가이드 추가
           totalScenes: step3Data.scenes.length,
           completedScenes: Object.keys(step3Data.sceneImages).filter(
             id => step3Data.sceneImages[id]?.imageData
