@@ -165,8 +165,8 @@
             <button class="btn btn-outline" onclick="previewStoryboard()">
               👁️ 미리보기
             </button>
-            <button class="btn btn-secondary" onclick="exportToPDF()">
-              📄 PDF 저장
+            <button class="btn btn-secondary" onclick="exportAllToHTML()">
+              📥 HTML 저장
             </button>
           </div>
         </div>
@@ -2522,34 +2522,203 @@
   }
 
   /**
-   * PDF 내보내기
+   * 전체 스토리보드 HTML 내보내기 (클라이언트 사이드)
    */
-  async function exportToPDF() {
-    showLoading('PDF 생성 중...');
-
+  function exportAllToHTML() {
     try {
-      const result = await callApi('exportStoryboardPDF', {
-        studentName: step3Data.studentName,
-        studentNumber: step3Data.studentNumber,
-        title: step3Data.title,
-        scenes: step3Data.scenes,
-        sceneImages: step3Data.sceneImages
+      const scenes = step3Data.scenes;
+      const sceneImages = step3Data.sceneImages || {};
+      const studentName = step3Data.studentName || '학생';
+      const title = step3Data.title || '나의 이야기';
+
+      // 전체 스토리보드 HTML 생성
+      const htmlContent = generateFullStoryboardHTML({
+        studentName,
+        title,
+        scenes,
+        sceneImages
       });
 
-      hideLoading();
+      // Blob 생성 및 다운로드
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}_스토리보드_${studentName}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      if (result.success && result.pdfUrl) {
-        // PDF 다운로드 링크 열기
-        window.open(result.pdfUrl, '_blank');
-        showToast('PDF가 생성되었습니다! 📄', 'success');
-      } else {
-        showToast(result.error || 'PDF 생성에 실패했습니다.', 'error');
-      }
+      showToast('스토리보드가 HTML로 저장되었습니다! 📥', 'success');
     } catch (error) {
-      hideLoading();
-      console.error('PDF 생성 오류:', error);
-      showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+      console.error('HTML 저장 오류:', error);
+      showToast('HTML 저장 중 오류가 발생했습니다.', 'error');
     }
+  }
+
+  /**
+   * 전체 스토리보드 HTML 템플릿 생성
+   */
+  function generateFullStoryboardHTML({ studentName, title, scenes, sceneImages }) {
+    const scenesHTML = scenes.map((scene, index) => {
+      const imageData = sceneImages[scene.id]?.imageData || '';
+      const imageHTML = imageData
+        ? `<img src="${imageData}" alt="${escapeHtml(scene.name)} 그림" style="max-width: 100%; border-radius: 8px; margin-bottom: 12px;">`
+        : `<div style="width: 100%; height: 200px; background: #f0f0f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #999; margin-bottom: 12px;">그림 없음</div>`;
+
+      return `
+        <div class="scene-card" style="page-break-inside: avoid;">
+          <div class="scene-header">
+            <span class="scene-number">${index + 1}</span>
+            <span class="scene-title">${escapeHtml(scene.name)}</span>
+            <span class="scene-type">${escapeHtml(scene.type || '장면')}</span>
+          </div>
+          <div class="scene-content">
+            <div class="scene-image">
+              ${imageHTML}
+            </div>
+            <div class="scene-text">
+              <h4>📝 이야기</h4>
+              <p>${escapeHtml(scene.description || '내용 없음')}</p>
+              ${scene.dialogue ? `
+                <div class="dialogue">
+                  <h4>💬 대사</h4>
+                  <p>"${escapeHtml(scene.dialogue)}"</p>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('\n');
+
+    return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)} - ${escapeHtml(studentName)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+      background: #f8f9fa;
+      color: #333;
+      line-height: 1.6;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    .header h1 { font-size: 28px; margin-bottom: 8px; }
+    .header p { opacity: 0.9; font-size: 16px; }
+    .scenes-container { padding: 24px; }
+    .scene-card {
+      background: #fafbfc;
+      border: 1px solid #e1e4e8;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .scene-header {
+      background: #f0f4f8;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #e1e4e8;
+    }
+    .scene-number {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .scene-title { font-weight: 600; font-size: 18px; flex: 1; }
+    .scene-type {
+      background: #e8f4fd;
+      color: #0969da;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+    }
+    .scene-content { padding: 20px; }
+    .scene-text h4 { color: #555; font-size: 14px; margin-bottom: 8px; }
+    .scene-text p { font-size: 15px; margin-bottom: 16px; }
+    .dialogue {
+      background: #fff8e6;
+      border-left: 4px solid #f6b93b;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      margin-top: 12px;
+    }
+    .dialogue h4 { color: #b7791f; }
+    .dialogue p { color: #744210; font-style: italic; margin-bottom: 0; }
+    .footer {
+      text-align: center;
+      padding: 20px;
+      background: #f8f9fa;
+      border-top: 1px solid #e1e4e8;
+      color: #666;
+      font-size: 13px;
+    }
+    .print-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 32px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 20px auto;
+      display: block;
+    }
+    .print-btn:hover { opacity: 0.9; }
+    @media print {
+      body { background: white; padding: 0; }
+      .container { box-shadow: none; border-radius: 0; }
+      .print-btn { display: none; }
+      .scene-card { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📖 ${escapeHtml(title)}</h1>
+      <p>작성자: ${escapeHtml(studentName)}</p>
+    </div>
+    <div class="scenes-container">
+      ${scenesHTML}
+    </div>
+    <button class="print-btn" onclick="window.print()">🖨️ 인쇄하기</button>
+    <div class="footer">
+      이야기 창작 워크시트 | 생성일: ${new Date().toLocaleDateString('ko-KR')}
+    </div>
+  </div>
+</body>
+</html>`;
   }
 
   /**

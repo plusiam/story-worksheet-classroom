@@ -3,19 +3,19 @@
      전역 상태
      ============================================ */
   const AppState = {
-    currentUser: null,  // { name, number, token, role }
+    currentUser: null, // { name, number, token, role }
     settings: null,
     isTeacher: false,
-    isPersonalMode: false,  // 개인 모드 여부
-    currentRoute: null
+    isPersonalMode: false, // 개인 모드 여부
+    currentRoute: null,
   };
 
   /* ============================================
      시스템 모드 상수
      ============================================ */
   const SYSTEM_MODES = {
-    CLASSROOM: 'classroom',  // 학급 모드 (교사 + 학생)
-    PERSONAL: 'personal'     // 개인 모드 (로그인 없음)
+    CLASSROOM: "classroom", // 학급 모드 (교사 + 학생)
+    PERSONAL: "personal", // 개인 모드 (로그인 없음)
   };
 
   /* ============================================
@@ -25,17 +25,34 @@
     try {
       showLoading();
 
+      // 교사 토큰 자동 주입 (세션 스토리지 또는 AppState에서)
+      let token = null;
+      try {
+        token = sessionStorage.getItem("teacherToken");
+      } catch (e) {
+        /* ignore */
+      }
+
+      if (!token && AppState && AppState.teacherToken) {
+        token = AppState.teacherToken;
+      }
+
+      const payload = { ...data };
+      if (token) {
+        payload.teacherToken = token;
+      }
+
       return new Promise((resolve, reject) => {
         google.script.run
-          .withSuccessHandler(result => {
+          .withSuccessHandler((result) => {
             hideLoading();
             resolve(result);
           })
-          .withFailureHandler(error => {
+          .withFailureHandler((error) => {
             hideLoading();
             reject(error);
           })
-          .callApi(action, data);
+          .callApi(action, payload);
       });
     } catch (error) {
       hideLoading();
@@ -46,27 +63,27 @@
   /* ============================================
      로딩 UI
      ============================================ */
-  function showLoading(message = '잠시만 기다려주세요...') {
-    const loader = document.getElementById('loading');
+  function showLoading(message = "잠시만 기다려주세요...") {
+    const loader = document.getElementById("loading");
     if (loader) {
-      loader.querySelector('p').textContent = message;
-      loader.classList.remove('hidden');
+      loader.querySelector("p").textContent = message;
+      loader.classList.remove("hidden");
     }
   }
 
   function hideLoading() {
-    const loader = document.getElementById('loading');
+    const loader = document.getElementById("loading");
     if (loader) {
-      loader.classList.add('hidden');
+      loader.classList.add("hidden");
     }
   }
 
   /* ============================================
      토스트 메시지
      ============================================ */
-  function showToast(message, type = 'info', duration = 3000) {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
+  function showToast(message, type = "info", duration = 3000) {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
     toast.className = `toast ${type}`;
     toast.innerHTML = `
       <span>${getToastIcon(type)}</span>
@@ -75,17 +92,21 @@
     container.appendChild(toast);
 
     setTimeout(() => {
-      toast.style.opacity = '0';
+      toast.style.opacity = "0";
       setTimeout(() => toast.remove(), 300);
     }, duration);
   }
 
   function getToastIcon(type) {
     switch (type) {
-      case 'success': return '✅';
-      case 'error': return '❌';
-      case 'warning': return '⚠️';
-      default: return 'ℹ️';
+      case "success":
+        return "✅";
+      case "error":
+        return "❌";
+      case "warning":
+        return "⚠️";
+      default:
+        return "ℹ️";
     }
   }
 
@@ -108,19 +129,26 @@
     startLeft: 0,
     startTop: 0,
     startWidth: 0,
-    startHeight: 0
+    startHeight: 0,
   };
 
   function showModal(options) {
-    const { title, content, buttons = [], onClose, extraActions = '', resizable = true } = options;
+    const {
+      title,
+      content,
+      buttons = [],
+      onClose,
+      extraActions = "",
+      resizable = true,
+    } = options;
 
     // 버튼 액션 저장
-    _modalButtonActions = buttons.map(btn => btn.action || null);
+    _modalButtonActions = buttons.map((btn) => btn.action || null);
 
-    const container = document.getElementById('modal-container');
+    const container = document.getElementById("modal-container");
     container.innerHTML = `
       <div class="modal-overlay" onclick="handleOverlayClick(event)">
-        <div class="modal modal-draggable ${resizable ? 'modal-resizable' : ''}"
+        <div class="modal modal-draggable ${resizable ? "modal-resizable" : ""}"
              onclick="event.stopPropagation()"
              id="draggable-modal">
           <div class="modal-header" onmousedown="startModalDrag(event)" ontouchstart="startModalDrag(event)" style="cursor: move; touch-action: none;">
@@ -135,16 +163,24 @@
           <div class="modal-body">
             ${content}
           </div>
-          ${buttons.length > 0 || extraActions ? `
+          ${
+            buttons.length > 0 || extraActions
+              ? `
             <div class="modal-footer" style="display: flex; align-items: center; gap: 8px;">
               ${extraActions}
               <div style="flex: 1;"></div>
-              ${buttons.map((btn, idx) => `
-                <button class="btn ${btn.class || 'btn-outline'}" onclick="${btn.action ? `handleModalButton(${idx})` : (btn.onclick || 'closeModal()')}">${btn.text}</button>
-              `).join('')}
+              ${buttons
+                .map(
+                  (btn, idx) => `
+                <button class="btn ${btn.class || "btn-outline"}" onclick="${btn.action ? `handleModalButton(${idx})` : btn.onclick || "closeModal()"}">${btn.text}</button>
+              `,
+                )
+                .join("")}
             </div>
-          ` : ''}
-          ${resizable ? '<div class="modal-resize-handle" onmousedown="startModalResize(event)" ontouchstart="startModalResize(event)"></div>' : ''}
+          `
+              : ""
+          }
+          ${resizable ? '<div class="modal-resize-handle" onmousedown="startModalResize(event)" ontouchstart="startModalResize(event)"></div>' : ""}
         </div>
       </div>
       <style>
@@ -226,7 +262,7 @@
     `;
 
     // 모달 초기 위치 설정 (화면 중앙)
-    const modal = document.getElementById('draggable-modal');
+    const modal = document.getElementById("draggable-modal");
     if (modal) {
       setTimeout(() => {
         const rect = modal.getBoundingClientRect();
@@ -243,7 +279,7 @@
   // 오버레이 클릭 처리 (드래그 중이 아닐 때만 닫기)
   function handleOverlayClick(event) {
     if (!_modalDragState.isDragging && !_modalDragState.isResizing) {
-      if (event.target.classList.contains('modal-overlay')) {
+      if (event.target.classList.contains("modal-overlay")) {
         closeModal();
       }
     }
@@ -251,10 +287,10 @@
 
   // 모달 드래그 시작 (마우스 + 터치 지원)
   function startModalDrag(event) {
-    if (event.target.tagName === 'BUTTON') return;
+    if (event.target.tagName === "BUTTON") return;
 
-    const modal = document.getElementById('draggable-modal');
-    if (!modal || modal.classList.contains('maximized')) return;
+    const modal = document.getElementById("draggable-modal");
+    if (!modal || modal.classList.contains("maximized")) return;
 
     // 터치 이벤트 처리
     const clientX = event.touches ? event.touches[0].clientX : event.clientX;
@@ -269,11 +305,11 @@
     _modalDragState.startTop = rect.top;
 
     // 마우스 이벤트
-    document.addEventListener('mousemove', handleModalDrag);
-    document.addEventListener('mouseup', stopModalDrag);
+    document.addEventListener("mousemove", handleModalDrag);
+    document.addEventListener("mouseup", stopModalDrag);
     // 터치 이벤트
-    document.addEventListener('touchmove', handleModalDrag, { passive: false });
-    document.addEventListener('touchend', stopModalDrag);
+    document.addEventListener("touchmove", handleModalDrag, { passive: false });
+    document.addEventListener("touchend", stopModalDrag);
 
     event.preventDefault();
   }
@@ -282,7 +318,7 @@
   function handleModalDrag(event) {
     if (!_modalDragState.isDragging) return;
 
-    const modal = document.getElementById('draggable-modal');
+    const modal = document.getElementById("draggable-modal");
     if (!modal) return;
 
     // 터치 이벤트 처리
@@ -309,16 +345,16 @@
   // 모달 드래그 종료
   function stopModalDrag() {
     _modalDragState.isDragging = false;
-    document.removeEventListener('mousemove', handleModalDrag);
-    document.removeEventListener('mouseup', stopModalDrag);
-    document.removeEventListener('touchmove', handleModalDrag);
-    document.removeEventListener('touchend', stopModalDrag);
+    document.removeEventListener("mousemove", handleModalDrag);
+    document.removeEventListener("mouseup", stopModalDrag);
+    document.removeEventListener("touchmove", handleModalDrag);
+    document.removeEventListener("touchend", stopModalDrag);
   }
 
   // 모달 크기 조절 시작 (마우스 + 터치 지원)
   function startModalResize(event) {
-    const modal = document.getElementById('draggable-modal');
-    if (!modal || modal.classList.contains('maximized')) return;
+    const modal = document.getElementById("draggable-modal");
+    if (!modal || modal.classList.contains("maximized")) return;
 
     // 터치 이벤트 처리
     const clientX = event.touches ? event.touches[0].clientX : event.clientX;
@@ -333,11 +369,13 @@
     _modalDragState.startHeight = rect.height;
 
     // 마우스 이벤트
-    document.addEventListener('mousemove', handleModalResize);
-    document.addEventListener('mouseup', stopModalResize);
+    document.addEventListener("mousemove", handleModalResize);
+    document.addEventListener("mouseup", stopModalResize);
     // 터치 이벤트
-    document.addEventListener('touchmove', handleModalResize, { passive: false });
-    document.addEventListener('touchend', stopModalResize);
+    document.addEventListener("touchmove", handleModalResize, {
+      passive: false,
+    });
+    document.addEventListener("touchend", stopModalResize);
 
     event.preventDefault();
     event.stopPropagation();
@@ -347,7 +385,7 @@
   function handleModalResize(event) {
     if (!_modalDragState.isResizing) return;
 
-    const modal = document.getElementById('draggable-modal');
+    const modal = document.getElementById("draggable-modal");
     if (!modal) return;
 
     // 터치 이벤트 처리
@@ -373,22 +411,22 @@
   // 모달 크기 조절 종료
   function stopModalResize() {
     _modalDragState.isResizing = false;
-    document.removeEventListener('mousemove', handleModalResize);
-    document.removeEventListener('mouseup', stopModalResize);
-    document.removeEventListener('touchmove', handleModalResize);
-    document.removeEventListener('touchend', stopModalResize);
+    document.removeEventListener("mousemove", handleModalResize);
+    document.removeEventListener("mouseup", stopModalResize);
+    document.removeEventListener("touchmove", handleModalResize);
+    document.removeEventListener("touchend", stopModalResize);
   }
 
   // 모달 크기 토글 (일반/최대화)
   function toggleModalSize() {
-    const modal = document.getElementById('draggable-modal');
+    const modal = document.getElementById("draggable-modal");
     if (!modal) return;
 
-    if (modal.classList.contains('maximized')) {
+    if (modal.classList.contains("maximized")) {
       // 원래 크기로 복원
-      modal.classList.remove('maximized');
-      modal.style.width = '';
-      modal.style.height = '';
+      modal.classList.remove("maximized");
+      modal.style.width = "";
+      modal.style.height = "";
       // 중앙으로 재배치
       setTimeout(() => {
         const rect = modal.getBoundingClientRect();
@@ -397,13 +435,13 @@
       }, 0);
     } else {
       // 최대화
-      modal.classList.add('maximized');
+      modal.classList.add("maximized");
     }
   }
 
   function handleModalButton(index) {
     const action = _modalButtonActions[index];
-    if (typeof action === 'function') {
+    if (typeof action === "function") {
       action();
     } else {
       closeModal();
@@ -415,12 +453,12 @@
   }
 
   function closeModal() {
-    const container = document.getElementById('modal-container');
+    const container = document.getElementById("modal-container");
     if (container._onClose) {
       container._onClose();
       delete container._onClose;
     }
-    container.innerHTML = '';
+    container.innerHTML = "";
     _modalButtonActions = [];
   }
 
@@ -437,10 +475,10 @@
     _pendingCancelCallback = onCancel || null;
 
     // 별도의 confirm 컨테이너에 렌더링 (기존 모달 유지)
-    let confirmContainer = document.getElementById('confirm-container');
+    let confirmContainer = document.getElementById("confirm-container");
     if (!confirmContainer) {
-      confirmContainer = document.createElement('div');
-      confirmContainer.id = 'confirm-container';
+      confirmContainer = document.createElement("div");
+      confirmContainer.id = "confirm-container";
       document.body.appendChild(confirmContainer);
     }
 
@@ -517,7 +555,7 @@
     _pendingConfirmCallback = null;
     _pendingCancelCallback = null;
     hideConfirm();
-    if (typeof callback === 'function') {
+    if (typeof callback === "function") {
       callback();
     }
   }
@@ -528,16 +566,16 @@
     _pendingConfirmCallback = null;
     _pendingCancelCallback = null;
     hideConfirm();
-    if (typeof callback === 'function') {
+    if (typeof callback === "function") {
       callback();
     }
   }
 
   // 확인 다이얼로그 숨기기
   function hideConfirm() {
-    const confirmContainer = document.getElementById('confirm-container');
+    const confirmContainer = document.getElementById("confirm-container");
     if (confirmContainer) {
-      confirmContainer.innerHTML = '';
+      confirmContainer.innerHTML = "";
     }
   }
 
@@ -556,8 +594,8 @@
 
   // HTML 이스케이프
   function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
+    if (!text) return "";
+    const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
   }
@@ -568,13 +606,13 @@
     if (!form) return {};
 
     const data = {};
-    const inputs = form.querySelectorAll('input, textarea, select');
+    const inputs = form.querySelectorAll("input, textarea, select");
 
-    inputs.forEach(input => {
+    inputs.forEach((input) => {
       if (input.name) {
-        if (input.type === 'checkbox') {
+        if (input.type === "checkbox") {
           data[input.name] = input.checked;
-        } else if (input.type === 'number') {
+        } else if (input.type === "number") {
           data[input.name] = input.value ? parseInt(input.value, 10) : null;
         } else {
           data[input.name] = input.value;
@@ -587,7 +625,7 @@
 
   // 입력값 검증
   function validateRequired(value, fieldName) {
-    if (!value || (typeof value === 'string' && !value.trim())) {
+    if (!value || (typeof value === "string" && !value.trim())) {
       return `${fieldName}을(를) 입력해주세요.`;
     }
     return null;
@@ -606,7 +644,7 @@
 
   function validatePin(value) {
     if (!value || !/^\d{6}$/.test(value)) {
-      return 'PIN은 숫자 6자리여야 합니다.';
+      return "PIN은 숫자 6자리여야 합니다.";
     }
     return null;
   }
@@ -620,11 +658,11 @@
     clearFieldError(inputId);
 
     // 에러 스타일 적용
-    input.style.borderColor = 'var(--accent)';
+    input.style.borderColor = "var(--accent)";
 
     // 에러 메시지 추가
-    const errorEl = document.createElement('div');
-    errorEl.className = 'form-error';
+    const errorEl = document.createElement("div");
+    errorEl.className = "form-error";
     errorEl.id = `${inputId}-error`;
     errorEl.textContent = message;
     input.parentNode.appendChild(errorEl);
@@ -633,7 +671,7 @@
   function clearFieldError(inputId) {
     const input = document.getElementById(inputId);
     if (input) {
-      input.style.borderColor = '';
+      input.style.borderColor = "";
     }
 
     const errorEl = document.getElementById(`${inputId}-error`);
@@ -643,22 +681,22 @@
   }
 
   function clearAllErrors() {
-    $$('.form-error').forEach(el => el.remove());
-    $$('.form-input').forEach(el => el.style.borderColor = '');
+    $$(".form-error").forEach((el) => el.remove());
+    $$(".form-input").forEach((el) => (el.style.borderColor = ""));
   }
 
   // 로컬 스토리지 (세션 저장용)
   function saveSession(data) {
     try {
-      sessionStorage.setItem('storyCreator_session', JSON.stringify(data));
+      sessionStorage.setItem("storyCreator_session", JSON.stringify(data));
     } catch (e) {
-      console.warn('Session storage not available');
+      console.warn("Session storage not available");
     }
   }
 
   function loadSession() {
     try {
-      const data = sessionStorage.getItem('storyCreator_session');
+      const data = sessionStorage.getItem("storyCreator_session");
       return data ? JSON.parse(data) : null;
     } catch (e) {
       return null;
@@ -668,9 +706,9 @@
   function clearSession() {
     try {
       // 학생 세션 클리어
-      sessionStorage.removeItem('storyCreator_session');
+      sessionStorage.removeItem("storyCreator_session");
     } catch (e) {
-      console.warn('Session storage not available');
+      console.warn("Session storage not available");
     }
   }
 
@@ -680,18 +718,18 @@
   function clearAllSessions() {
     try {
       // 학생 세션
-      sessionStorage.removeItem('storyCreator_session');
+      sessionStorage.removeItem("storyCreator_session");
       // 교사 세션
-      sessionStorage.removeItem('teacherToken');
-      sessionStorage.removeItem('teacherEmail');
-      sessionStorage.removeItem('teacherRole');
+      sessionStorage.removeItem("teacherToken");
+      sessionStorage.removeItem("teacherEmail");
+      sessionStorage.removeItem("teacherRole");
       // AppState 초기화
       AppState.currentUser = null;
       AppState.isTeacher = false;
       AppState.teacherToken = null;
       AppState.teacherEmail = null;
     } catch (e) {
-      console.warn('Session storage not available');
+      console.warn("Session storage not available");
     }
   }
 
@@ -700,14 +738,14 @@
    */
   function clearTeacherSession() {
     try {
-      sessionStorage.removeItem('teacherToken');
-      sessionStorage.removeItem('teacherEmail');
-      sessionStorage.removeItem('teacherRole');
+      sessionStorage.removeItem("teacherToken");
+      sessionStorage.removeItem("teacherEmail");
+      sessionStorage.removeItem("teacherRole");
       AppState.isTeacher = false;
       AppState.teacherToken = null;
       AppState.teacherEmail = null;
     } catch (e) {
-      console.warn('Session storage not available');
+      console.warn("Session storage not available");
     }
   }
 
@@ -716,7 +754,7 @@
    */
   function hasTeacherSession() {
     try {
-      return !!sessionStorage.getItem('teacherToken');
+      return !!sessionStorage.getItem("teacherToken");
     } catch (e) {
       return false;
     }
@@ -724,21 +762,21 @@
 
   // 날짜 포맷
   function formatDate(dateString) {
-    if (!dateString) return '';
+    if (!dateString) return "";
     const date = new Date(dateString);
-    return date.toLocaleDateString('ko-KR', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    return date.toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   }
 
   function formatDateShort(dateString) {
-    if (!dateString) return '';
+    if (!dateString) return "";
     const date = new Date(dateString);
-    return date.toLocaleDateString('ko-KR');
+    return date.toLocaleDateString("ko-KR");
   }
 
   // 디바운스
@@ -758,17 +796,17 @@
   async function copyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
-      showToast('복사되었습니다!', 'success');
+      showToast("복사되었습니다!", "success");
       return true;
     } catch (err) {
       // 폴백
-      const textarea = document.createElement('textarea');
+      const textarea = document.createElement("textarea");
       textarea.value = text;
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand('copy');
+      document.execCommand("copy");
       document.body.removeChild(textarea);
-      showToast('복사되었습니다!', 'success');
+      showToast("복사되었습니다!", "success");
       return true;
     }
   }
@@ -783,23 +821,23 @@
         width: size,
         margin: 2,
         color: {
-          dark: '#2C3E50',
-          light: '#FFFFFF'
-        }
+          dark: "#2C3E50",
+          light: "#FFFFFF",
+        },
       });
 
       element.innerHTML = `<img src="${dataUrl}" alt="QR Code" style="max-width: 100%;">`;
     } catch (err) {
-      console.error('QR 생성 실패:', err);
+      console.error("QR 생성 실패:", err);
       element.innerHTML = '<p class="text-muted">QR 코드 생성 실패</p>';
     }
   }
 
   // 다운로드 함수
-  function downloadFile(content, filename, type = 'text/plain') {
+  function downloadFile(content, filename, type = "text/plain") {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);
@@ -810,7 +848,7 @@
 
   function downloadJSON(data, filename) {
     const json = JSON.stringify(data, null, 2);
-    downloadFile(json, filename, 'application/json');
+    downloadFile(json, filename, "application/json");
   }
 
   /* ============================================
@@ -820,15 +858,15 @@
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const inputs = container.querySelectorAll('.pin-input');
+    const inputs = container.querySelectorAll(".pin-input");
 
     inputs.forEach((input, index) => {
-      input.addEventListener('input', (e) => {
+      input.addEventListener("input", (e) => {
         const value = e.target.value;
 
         // 숫자만 허용
         if (!/^\d*$/.test(value)) {
-          e.target.value = '';
+          e.target.value = "";
           return;
         }
 
@@ -839,27 +877,29 @@
 
         // 완료 확인
         if (index === inputs.length - 1 && value) {
-          const pin = Array.from(inputs).map(i => i.value).join('');
+          const pin = Array.from(inputs)
+            .map((i) => i.value)
+            .join("");
           if (pin.length === 6 && onComplete) {
             onComplete(pin);
           }
         }
       });
 
-      input.addEventListener('keydown', (e) => {
+      input.addEventListener("keydown", (e) => {
         // 백스페이스 처리
-        if (e.key === 'Backspace' && !e.target.value && index > 0) {
+        if (e.key === "Backspace" && !e.target.value && index > 0) {
           inputs[index - 1].focus();
         }
       });
 
       // 붙여넣기 처리
-      input.addEventListener('paste', (e) => {
+      input.addEventListener("paste", (e) => {
         e.preventDefault();
-        const paste = (e.clipboardData || window.clipboardData).getData('text');
-        const digits = paste.replace(/\D/g, '').slice(0, 6);
+        const paste = (e.clipboardData || window.clipboardData).getData("text");
+        const digits = paste.replace(/\D/g, "").slice(0, 6);
 
-        digits.split('').forEach((digit, i) => {
+        digits.split("").forEach((digit, i) => {
           if (inputs[i]) {
             inputs[i].value = digit;
           }
@@ -881,18 +921,20 @@
 
   function getPinValue(containerId) {
     const container = document.getElementById(containerId);
-    if (!container) return '';
+    if (!container) return "";
 
-    const inputs = container.querySelectorAll('.pin-input');
-    return Array.from(inputs).map(i => i.value).join('');
+    const inputs = container.querySelectorAll(".pin-input");
+    return Array.from(inputs)
+      .map((i) => i.value)
+      .join("");
   }
 
   function clearPinInput(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    const inputs = container.querySelectorAll('.pin-input');
-    inputs.forEach(input => input.value = '');
+    const inputs = container.querySelectorAll(".pin-input");
+    inputs.forEach((input) => (input.value = ""));
     if (inputs[0]) inputs[0].focus();
   }
 </script>
